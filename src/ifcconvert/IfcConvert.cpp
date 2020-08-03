@@ -54,6 +54,19 @@
 #include <set>
 #include <time.h>
 
+ //add my own header
+#include "../ifcparse/IfcFile.h";
+#ifdef USE_IFC4
+#define IfcSchema Ifc4
+#else
+#define IfcSchema Ifc2x3
+#endif
+
+#include <boost/property_tree/ptree.hpp>//ptree
+using boost::property_tree::ptree;
+#include <boost/property_tree/xml_parser.hpp>//read,write
+#include <boost/typeof/typeof.hpp>//BOOST_AUTO
+
 #if USE_VLD
 #include <vld.h>
 #endif
@@ -144,6 +157,14 @@ static std::basic_stringstream<path_t::value_type> log_stream;
 void write_log(bool);
 void fix_quantities(IfcParse::IfcFile&, bool, bool, bool);
 std::string format_duration(time_t start, time_t end);
+
+//my own function
+bool createTxtFile(const std::string &filename, const std::string &content);
+std::map<std::string, ptree*> objectPlacement_node;
+void computeIfcProjectBounds(ptree &node);
+void updateXml(std::string xmlPath, ptree &node);
+std::map<std::string, std::string> getBounding(std::string &element_guid, const std::string &output_extension, SerializerSettings &settings, IfcParse::IfcFile &ifc_file);
+std::map<std::string, ptree*> findObjectPlacement(ptree &node);
 
 /// @todo make the filters non-global
 IfcGeom::entity_filter entity_filter; // Entity filter is used always by default.
@@ -983,6 +1004,163 @@ std::string format_duration(time_t start, time_t end)
         ss << "s";
     }
     return ss.str();
+}
+
+//add my own function impletation
+void computeIfcProjectBounds(ptree &node) {
+	ptree &ifcSite = node.get_child("ifc.decomposition.IfcProject.IfcSite");
+
+	//std::string ifcSite_minXYZ;		   std::string ifcSite_maxXYZ;
+	std::string ifcSite_minXYZ = ifcSite.get_child("<xmlattr>.minXYZ").get_value<std::string>();
+	std::string ifcSite_maxXYZ = ifcSite.get_child("<xmlattr>.maxXYZ").get_value<std::string>();
+	/*BOOST_FOREACH(ptree::value_type &child, ifcSite.get_child("")) {
+	std::string ifcSite_minXYZStr = child.second.get<std::string>("<xmlattr>.minXYZ", "default");
+	std::string ifcSite_maxXYZStr = child.second.get<std::string>("<xmlattr>.maxXYZ", "default");
+	}*/
+
+	cout_ << IfcUtil::path::from_utf8(ifcSite_minXYZ) << "ifcsite" << IfcUtil::path::from_utf8(ifcSite_maxXYZ) << std::endl;
+}
+
+void updateXml(std::string xmlPath, ptree &node) {
+#if BOOST_VERSION >= 105600
+	boost::property_tree::xml_writer_settings<ptree::key_type> settings = boost::property_tree::xml_writer_make_settings<ptree::key_type>('\t', 1);
+#else
+	boost::property_tree::xml_writer_settings<char> settings('\t', 1);
+#endif
+	boost::property_tree::write_xml(xmlPath, node, std::locale(), settings);
+}
+
+std::map<std::string, std::string> getBounding(std::string &element_guid, const std::string &output_extension, SerializerSettings &settings, IfcParse::IfcFile &ifc_file) {
+	std::map<std::string, std::string> ifcelement_bounds;
+	ifcelement_bounds.insert(std::pair<std::string, std::string>("minXYZ", "0.0 0.0 0.0"));
+	ifcelement_bounds.insert(std::pair<std::string, std::string>("maxXYZ", "0.0 0.0 0.0"));
+	/*SerializerSettings settings;
+	/// @todo Make APPLY_DEFAULT_MATERIALS configurable? Quickly tested setting this to false and using obj exporter caused the program to crash and burn.
+	settings.set(IfcGeom::IteratorSettings::APPLY_DEFAULT_MATERIALS, true);
+	settings.set(IfcGeom::IteratorSettings::USE_WORLD_COORDS, true);
+	settings.set(IfcGeom::IteratorSettings::WELD_VERTICES, false);
+	settings.set(IfcGeom::IteratorSettings::SEW_SHELLS, false);
+	settings.set(IfcGeom::IteratorSettings::CONVERT_BACK_UNITS, false);
+	#if OCC_VERSION_HEX < 0x60900
+	settings.set(IfcGeom::IteratorSettings::FASTER_BOOLEANS, false);
+	#endif
+	settings.set(IfcGeom::IteratorSettings::DISABLE_OPENING_SUBTRACTIONS, false);
+	settings.set(IfcGeom::IteratorSettings::INCLUDE_CURVES, false);
+	settings.set(IfcGeom::IteratorSettings::EXCLUDE_SOLIDS_AND_SURFACES, true);
+	settings.set(IfcGeom::IteratorSettings::APPLY_LAYERSETS, false);
+	settings.set(IfcGeom::IteratorSettings::NO_NORMALS, false);
+	settings.set(IfcGeom::IteratorSettings::GENERATE_UVS, false);
+	settings.set(IfcGeom::IteratorSettings::SEARCH_FLOOR, false);
+	settings.set(IfcGeom::IteratorSettings::SITE_LOCAL_PLACEMENT, false);
+	settings.set(IfcGeom::IteratorSettings::BUILDING_LOCAL_PLACEMENT, false);
+
+
+	settings.set(SerializerSettings::USE_ELEMENT_NAMES, false);
+	settings.set(SerializerSettings::USE_ELEMENT_GUIDS, true);
+	settings.set(SerializerSettings::USE_MATERIAL_NAMES, false);
+	settings.set(SerializerSettings::USE_ELEMENT_TYPES, false);
+	settings.set(SerializerSettings::USE_ELEMENT_HIERARCHY, false);*/
+
+	inclusion_filter include_filter;
+	inclusion_traverse_filter include_traverse_filter;
+
+	include_filter.type = geom_filter::ENTITY_ARG;
+	include_filter.include = true;
+	include_filter.traverse = true;
+	include_filter.arg = "GlobalId";
+	include_filter.values.emplace(element_guid);
+	std::vector<geom_filter> used_filters;
+	if (include_filter.type != geom_filter::UNUSED) { used_filters.push_back(include_filter); }
+	/*if (include_traverse_filter.type != geom_filter::UNUSED) { used_filters.push_back(include_traverse_filter); }
+	if (exclude_filter.type != geom_filter::UNUSED) { used_filters.push_back(exclude_filter); }
+	if (exclude_traverse_filter.type != geom_filter::UNUSED) { used_filters.push_back(exclude_traverse_filter); }*/
+
+	std::vector<IfcGeom::filter_t> filter_funcs = setup_filters(used_filters, output_extension);
+	if (filter_funcs.empty()) {
+		std::cerr << "[Error] Failed to set up geometry filters\n";
+		//return ifcelement_bounds;
+	}
+
+	IfcGeom::Iterator<real_t> context_iterator(settings, &ifc_file, filter_funcs);
+
+	if (!context_iterator.initialize()) {
+		/// @todo It would be nice to know and print separate error prints for a case where we found no entities
+		/// and for a case we found no entities that satisfy our filtering criteria.
+		Logger::Error("No geometrical entities found");
+		//return ifcelement_bounds;
+	}
+	else
+	{
+		std::vector<real_t> xCoords;
+		std::vector<real_t> yCoords;
+		std::vector<real_t> zCoords;
+		do {
+			IfcGeom::Element<real_t> *geom_object = context_iterator.get();
+
+			const IfcGeom::TriangulationElement<real_t>* o = static_cast<const IfcGeom::TriangulationElement<real_t>*>(geom_object);
+			const IfcGeom::Representation::Triangulation<real_t>& mesh = o->geometry();
+
+			for (std::vector<real_t>::const_iterator it = mesh.verts().begin(); it != mesh.verts().end(); ) {
+				xCoords.push_back(*(it++));
+				yCoords.push_back(*(it++));
+				zCoords.push_back(*(it++));
+			}
+
+		} while (context_iterator.next());
+		std::vector<real_t>::iterator xMax = std::max_element(std::begin(xCoords), std::end(xCoords));
+		auto  xMin = std::min_element(std::begin(xCoords), std::end(xCoords));
+		std::vector<real_t>::iterator yMax = std::max_element(std::begin(yCoords), std::end(yCoords));
+		auto  yMin = std::min_element(std::begin(yCoords), std::end(yCoords));
+		std::vector<real_t>::iterator zMax = std::max_element(std::begin(zCoords), std::end(zCoords));
+		auto  zMin = std::min_element(std::begin(zCoords), std::end(zCoords));
+		if (xCoords.size() != 0) {
+			const real_t dxMin = *xMin; const real_t dyMin = *yMin; const real_t dzMin = *zMin;
+			const real_t dxMax = *xMax; const real_t dyMax = *yMax; const real_t dzMax = *zMax;
+			std::stringstream stream;
+			stream << dxMin << " " << dyMin << " " << dzMin;
+			ifcelement_bounds["minXYZ"] = stream.str();
+			stream.clear();
+			stream.str("");
+			stream << dxMax << " " << dyMax << " " << dzMax;
+			ifcelement_bounds["maxXYZ"] = stream.str();
+		}
+	}
+	return ifcelement_bounds;
+}
+
+std::map<std::string, ptree*> findObjectPlacement(ptree &node) {
+	BOOST_FOREACH(ptree::value_type &child, node.get_child("")) {
+		std::string obj_placement = child.second.get<std::string>("<xmlattr>.ObjectPlacement", "default");
+		if (obj_placement.compare("default") != 0) {
+			//cout << "ttttttttttt" << child.first << endl;//节点名
+			std::string ifcelemnt_id = child.second.get<std::string>("<xmlattr>.id");
+			objectPlacement_node.insert(std::pair<std::string, ptree*>(ifcelemnt_id, &(child.second)));
+			/*BOOST_AUTO(childs, child.second.get_child(""));
+			BOOST_AUTO(child1, childs.begin());
+			for (; child1 != childs.end(); ++child1)
+			{
+			findObjectPlacement(*child1);
+			}*/
+			findObjectPlacement(child.second);
+		}
+	}
+
+	return objectPlacement_node;
+}
+
+bool createTxtFile(const std::string &filename, const std::string &content) {
+	ofstream location_out;
+	/*string ss;
+	ss = “(1, 2)”;*/
+	location_out.open(filename, std::ios::out | std::ios::trunc);  //以写入和在文件末尾添加的方式打开.txt文件，没有的话就创建该文件。 ios::app 文件末尾追加  ios::trunc 清空原有内容
+	if (!location_out.is_open())
+		return false;
+
+	location_out << content << endl;
+	//location_out << "(" << 5 << ", " << 10 << ") \n";     //将”(5,10) 回车”写入.txt文件中
+
+	location_out.close();
+	return true;
 }
 
 void write_log(bool header) {
