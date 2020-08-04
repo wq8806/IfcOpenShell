@@ -163,7 +163,7 @@ bool createTxtFile(const std::string &filename, const std::string &content);
 std::map<std::string, ptree*> objectPlacement_node;
 void computeIfcProjectBounds(ptree &node);
 void updateXml(std::string xmlPath, ptree &node);
-std::map<std::string, std::string> getBounding(std::string &element_guid, const std::string &output_extension, SerializerSettings &settings, IfcParse::IfcFile &ifc_file);
+std::map<std::string, std::string> getBounding(std::string &element_guid, const std::string &output_extension, SerializerSettings &settings, IfcParse::IfcFile &ifc_file,int num_threads);
 std::map<std::string, ptree*> findObjectPlacement(ptree &node);
 
 /// @todo make the filters non-global
@@ -283,6 +283,10 @@ int main(int argc, char** argv) {
             "Applies an arbitrary offset of form 'x;y;z' to all placements.")
 		("model-rotation", po::value<std::string>(&rotation_str),
 			"Applies an arbitrary quaternion rotation of form 'x;y;z;w' to all placements.")
+		//部件化格式设置，默认为dae
+		("obj",
+			"Specifies whether to decompose the IFC file to obj or dae,if not "
+			"specified,dae by default.")
 #if OCC_VERSION_HEX < 0x60900
 		// In Open CASCADE version prior to 6.9.0 boolean operations with multiple
 		// arguments where not introduced yet and a work-around was implemented to
@@ -455,6 +459,7 @@ int main(int argc, char** argv) {
 	const bool generate_uvs = vmap.count("generate-uvs") != 0;
 	const bool validate = vmap.count("validate") != 0;
 	const bool edge_arrows = vmap.count("edge-arrows") != 0;
+	const bool decompose_obj = vmap.count("obj") != 0;   //默认为dae
 
     if (!quiet || vmap.count("version")) {
 		print_version();
@@ -722,7 +727,355 @@ int main(int argc, char** argv) {
 	} else if (output_extension == SVG) {
 		settings.set(IfcGeom::IteratorSettings::DISABLE_TRIANGULATION, true);
 		serializer = boost::make_shared<SvgSerializer>(IfcUtil::path::to_utf8(output_temp_filename), settings);
-	} else {
+	}
+	else if (output_extension.find('.') == std::string::npos) {  //decompose
+		settings.set(IfcGeom::IteratorSettings::USE_WORLD_COORDS, true);
+		if (!init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
+			IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename)); /**< @todo Windows Unicode support */
+			return EXIT_FAILURE;
+		}
+		try
+		{
+			XmlSerializer xmlS(ifc_file, IfcUtil::path::to_utf8(output_temp_filename));
+			//xmlS.setFile(&ifc_file); 构造函数中已传入文件
+			Logger::Status("Writing XML output...");
+			xmlS.finalize();
+			Logger::Status("Done! Xml Conversion has completed .");
+
+			IfcUtil::path::rename_file(IfcUtil::path::to_utf8(output_temp_filename), IfcUtil::path::to_utf8(output_filename) + "property.xml");
+
+			//return EXIT_SUCCESS;
+		}
+		catch (const std::exception& error)
+		{
+			Logger::Error(error);
+		}
+		used_filters.clear();
+
+		ptree pt;
+		//读取，去掉空格
+		read_xml(IfcUtil::path::to_utf8(output_filename) + "property.xml", pt, boost::property_tree::xml_parser::trim_whitespace, std::locale());
+		ptree &ifcProject = pt.get_child("ifc.decomposition.IfcProject");
+		findObjectPlacement(ifcProject);
+
+		std::map<std::string, std::string> composite_bounds;
+		std::map<std::string, int> ifcType_number;
+		std::map<std::string, int>::iterator it;
+		//IfcParse::IfcFile file = *ifc_file;
+		IfcSchema::IfcProduct::list::ptr elements = (*ifc_file).instances_by_type<IfcSchema::IfcProduct>();
+		//IfcProduct::list::ptr elements = ifc_file.entitiesByType<IfcProduct>();
+		//IfcBuildingElement::list::ptr elements = ifc_file.entitiesByType<IfcBuildingElement>();
+
+		cout_ << "Found " << elements->size() << " elements in " << argv[1] << ":" << std::endl;
+
+		time_t start, end;
+		time(&start);
+
+		for (IfcSchema::IfcProduct::list::it it = elements->begin(); it != elements->end(); ++it) {
+			const IfcSchema::IfcProduct* element = *it;
+			//std::string element_IfcType = IfcSchema::Type::ToString(element->entity->type()); //旧版ifctype
+			std::string element_IfcType = element->data().type()->name();  //ifctype
+			//std::cout << element->entity->getArgument(0)->toString() << std::endl;       //旧版'guid'
+			std::string element_tem_guid = element->GlobalId();    //guid
+			//std::string element_guid = element_tem_guid.substr(1, element_tem_guid.size() - 2);   //旧版需要去掉""
+			std::string element_guid = element_tem_guid;
+			//output_temp_filename = output_filename + IfcUtil::path::from_utf8(element_guid + TEMP_FILE_EXTENSION);     //输出guid命名
+			output_temp_filename = output_filename + IfcUtil::path::from_utf8(element_guid + "--" + element_IfcType + TEMP_FILE_EXTENSION);    //输出guid--ifcType命名
+
+			include_filter.type = geom_filter::ENTITY_ARG;
+			include_filter.include = true;
+			if (include_traverse_filter.type != geom_filter::UNUSED) {
+				include_filter.traverse = true;                    //遍历 相当于include+  include_traverse_filter   IfcConvert ./inputdata/IfcOpenHouse.ifc ./output/aa/ss.dae --include+=arg GlobalId --use-element-guids
+																   //include_traverse_filter.type = geom_filter::UNUSED;
+			}
+			else {
+				include_filter.traverse = false;
+			}
+			//include_filter.traverse = true;
+			include_filter.arg = "GlobalId";
+			include_filter.values.emplace(element_guid);
+			std::vector<geom_filter> used_filters;
+			if (include_filter.type != geom_filter::UNUSED) { used_filters.push_back(include_filter); }
+			/*if (include_traverse_filter.type != geom_filter::UNUSED) { used_filters.push_back(include_traverse_filter); }
+			if (exclude_filter.type != geom_filter::UNUSED) { used_filters.push_back(exclude_filter); }
+			if (exclude_traverse_filter.type != geom_filter::UNUSED) { used_filters.push_back(exclude_traverse_filter); }*/
+
+			std::vector<IfcGeom::filter_t> filter_funcs = setup_filters(used_filters, IfcUtil::path::to_utf8(output_extension));
+			if (filter_funcs.empty()) {
+				cerr_ << "[Error] Failed to set up geometry filters\n";
+				return EXIT_FAILURE;
+			}
+			if (!entity_filter.entity_names.empty()) { entity_filter.update_description(); Logger::Notice(entity_filter.description); }
+			if (!layer_filter.values.empty()) { layer_filter.update_description(); Logger::Notice(layer_filter.description); }
+			if (!attribute_filter.attribute_name.empty()) { attribute_filter.update_description(); Logger::Notice(attribute_filter.description); }
+
+			//缺省默认转为dae,指定 --obj时转为obj
+			if (decompose_obj) {
+				const path_t mtl_filename = change_extension(output_temp_filename, MTL);
+				if (!use_world_coords) {
+					Logger::Notice("Using world coords when writing WaveFront OBJ files");
+					settings.set(IfcGeom::IteratorSettings::USE_WORLD_COORDS, true);
+				}
+				serializer = boost::make_shared<WaveFrontOBJSerializer>(IfcUtil::path::to_utf8(output_temp_filename), IfcUtil::path::to_utf8(mtl_filename), settings);
+			}
+			else
+			{
+				//转为dae
+				serializer = boost::make_shared<ColladaSerializer>(IfcUtil::path::to_utf8(output_temp_filename), settings);
+			}
+
+			if (use_element_hierarchy && decompose_obj) {
+				std::cerr << "[Error] --use-element-hierarchy can be used only with .dae output.\n";
+				write_log(!quiet);
+				print_usage();
+				IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename));
+				return EXIT_FAILURE;
+			}
+
+			const bool is_tesselated = serializer->isTesselated(); // isTesselated() doesn't change at run-time
+			if (!is_tesselated) {
+				if (weld_vertices) {
+					Logger::Notice("Weld vertices setting ignored when writing non-tesselated output");
+				}
+				if (generate_uvs) {
+					Logger::Notice("Generate UVs setting ignored when writing non-tesselated output");
+				}
+				if (center_model || model_offset) {
+					Logger::Notice("Centering/offsetting model setting ignored when writing non-tesselated output");
+				}
+
+				settings.set(IfcGeom::IteratorSettings::DISABLE_TRIANGULATION, true);
+			}
+
+			if (!serializer->ready()) {
+				IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename));
+				write_log(!quiet);
+				if (ifcType_number.count(element_IfcType + "_fail") > 0) {
+					ifcType_number[element_IfcType + "_fail"]++;
+				}
+				else
+				{
+					ifcType_number.insert(std::pair<std::string, int>(element_IfcType + "_fail", 1));
+				}
+				continue;
+				//return EXIT_FAILURE;
+			}
+		
+			IfcGeom::Iterator<real_t> context_iterator(settings, ifc_file, filter_funcs, num_threads);
+			if (!context_iterator.initialize()) {
+				/// @todo It would be nice to know and print separate error prints for a case where we found no entities
+				/// and for a case we found no entities that satisfy our filtering criteria.
+				Logger::Error("No geometrical entities found");
+				//delete serializer;
+				//std::remove(output_temp_filename.c_str()); /**< @todo Windows Unicode support */
+				write_log(!quiet);
+				if (ifcType_number.count(element_IfcType + "_fail") > 0) {
+					ifcType_number[element_IfcType + "_fail"]++;
+				}
+				else
+				{
+					ifcType_number.insert(std::pair<std::string, int>(element_IfcType + "_fail", 1));
+				}
+
+				//对于包含子元素的节点计算所有子元素AABB，对于存在模型实体的元素计算模型实体AABB
+				/*composite_bounds = getBounding(element_guid, output_extension, settings, ifc_file);
+				if (objectPlacement_node.count(element_guid) > 0) {
+				ptree* objectMap_node = objectPlacement_node[element_guid];
+				(*objectMap_node).put("<xmlattr>.minXYZ", composite_bounds["minXYZ"]);
+				(*objectMap_node).put("<xmlattr>.maxXYZ", composite_bounds["maxXYZ"]);
+				}*/
+				//continue;
+				//return EXIT_FAILURE;
+			}
+			else
+			{
+				serializer->setFile(context_iterator.file());
+
+				if (convert_back_units) {
+					serializer->setUnitNameAndMagnitude(context_iterator.unit_name(), static_cast<float>(context_iterator.unit_magnitude()));
+				}
+				else {
+					serializer->setUnitNameAndMagnitude("METER", 1.0f);
+				}
+
+				serializer->writeHeader();
+
+				int old_progress = -1;
+
+				Logger::Status("Creating geometry...");
+
+				size_t num_created = 0;
+
+				/*std::vector<real_t> xCoords;
+				std::vector<real_t> yCoords;
+				std::vector<real_t> zCoords;*/
+				do {
+					IfcGeom::Element<real_t> *geom_object = context_iterator.get();
+
+					if (is_tesselated)
+					{
+						serializer->write(static_cast<const IfcGeom::TriangulationElement<real_t>*>(geom_object));
+					}
+					else
+					{
+						serializer->write(static_cast<const IfcGeom::BRepElement<real_t>*>(geom_object));
+					}
+					/*const IfcGeom::TriangulationElement<real_t>* o = static_cast<const IfcGeom::TriangulationElement<real_t>*>(geom_object);
+					const IfcGeom::Representation::Triangulation<real_t>& mesh = o->geometry();
+
+					for (std::vector<real_t>::const_iterator it = mesh.verts().begin(); it != mesh.verts().end(); ) {
+					xCoords.push_back(*(it++));
+					yCoords.push_back(*(it++));
+					zCoords.push_back(*(it++));
+					}*/
+
+					if (!no_progress) {
+						const int progress = context_iterator.progress() / 2;
+						if (old_progress != progress) Logger::ProgressBar(progress);
+						old_progress = progress;
+					}
+				} while (++num_created, context_iterator.next());
+
+				/*std::vector<real_t>::iterator xMax = std::max_element(std::begin(xCoords), std::end(xCoords));
+				auto  xMin = std::min_element(std::begin(xCoords), std::end(xCoords));
+				std::vector<real_t>::iterator yMax = std::max_element(std::begin(yCoords), std::end(yCoords));
+				auto  yMin = std::min_element(std::begin(yCoords), std::end(yCoords));
+				std::vector<real_t>::iterator zMax = std::max_element(std::begin(zCoords), std::end(zCoords));
+				auto  zMin = std::min_element(std::begin(zCoords), std::end(zCoords));
+
+				if (objectPlacement_node.count(element_guid) > 0) {
+				ptree* objectMap_node = objectPlacement_node[element_guid];
+				std::stringstream stream;
+				if (xCoords.size() != 0) {
+				const real_t dxMin = *xMin; const real_t dyMin = *yMin; const real_t dzMin = *zMin;
+				const real_t dxMax = *xMax; const real_t dyMax = *yMax; const real_t dzMax = *zMax;
+				stream << dxMin << " " << dyMin << " " << dzMin;
+				stream.str();
+				(*objectMap_node).put("<xmlattr>.minXYZ", stream.str());
+				stream.clear();
+				stream.str("");
+				stream << dxMax << " " << dyMax << " " << dzMax;
+				(*objectMap_node).put("<xmlattr>.maxXYZ", stream.str());
+				}
+				else {
+				std::cout << "mesh.verts is null" << std::endl;
+				(*objectMap_node).put("<xmlattr>.minXYZ", "0.0 0.0 0.0");
+				(*objectMap_node).put("<xmlattr>.maxXYZ", "0.0 0.0 0.0");
+				}
+
+
+				}*/
+
+				Logger::Status("\rDone creating geometry (" + boost::lexical_cast<std::string>(num_created) +
+					" objects)                                ");
+
+				serializer->finalize();
+				//delete serializer;
+				serializer.reset();
+				// Renaming might fail (e.g. maybe the existing file was open in a viewer application)
+				// Do not remove the temp file as user can salvage the conversion result from it.
+				//std::string output_filename33 = output_filename;
+				size_t a = output_filename.find_last_of('/');
+				//std::cout << output_filename.size() << std::endl;
+				//std::cout << a << std::endl;
+				std::string output_filename11 = "";
+				if (decompose_obj) {
+					output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 3)) + "obj";
+				}
+				else
+				{
+					output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 3)) + "dae";
+				}
+				//std::string output_filename11 = output_temp_filename.substr(0, output_temp_filename.size() - 3) + "obj";
+				std::string output_filename22 = IfcUtil::path::to_utf8(output_filename.substr(0, a + 1)) + output_filename11;
+				std::string output_filename33 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 4)) + "--" + element_IfcType + ".dae";
+				//std::cout << output_filename22 << std::endl;
+				//bool successful = rename_file(output_temp_filename, output_filename11);  //guid命名
+				bool successful = IfcUtil::path::rename_file(IfcUtil::path::to_utf8(output_temp_filename), output_filename11);  //guid--type.dae 命名
+
+				if (!successful) {
+					Logger::Error("Unable to write output file '" + IfcUtil::path::to_utf8(output_filename) + "', see '" +
+						IfcUtil::path::to_utf8(output_temp_filename) + "' for the conversion result.");
+					if (ifcType_number.count(element_IfcType + "_fail") > 0) {
+						ifcType_number[element_IfcType + "_fail"]++;
+					}
+					else
+					{
+						ifcType_number.insert(std::pair<std::string, int>(element_IfcType + "_fail", 1));
+					}
+				}
+				else
+				{
+					if (ifcType_number.count(element_IfcType) > 0) {
+						ifcType_number[element_IfcType]++;
+					}
+					else
+					{
+						ifcType_number.insert(std::pair<std::string, int>(element_IfcType, 1));
+					}
+
+				}
+				include_filter.values.clear();
+
+				write_log(!quiet);
+
+
+				//bool successful = true;
+				//delete serializer;
+				//return successful ? EXIT_SUCCESS : EXIT_FAILURE;
+			}
+
+			//放置于转换文件前，会使得转换include.traverse = true;
+			composite_bounds = getBounding(element_guid, IfcUtil::path::to_utf8(output_extension), settings, *ifc_file,num_threads);
+			if (objectPlacement_node.count(element_guid) > 0) {
+				ptree* objectMap_node = objectPlacement_node[element_guid];
+				(*objectMap_node).put("<xmlattr>.minXYZ", composite_bounds["minXYZ"]);
+				(*objectMap_node).put("<xmlattr>.maxXYZ", composite_bounds["maxXYZ"]);
+			}
+
+
+		}
+
+		time(&end);
+
+		int seconds = (int)difftime(end, start);
+		std::stringstream msg;
+		int minutes = seconds / 60;
+		seconds = seconds % 60;
+		msg << "\nConversion took";
+		if (minutes > 0) {
+			msg << " " << minutes << " minute";
+			if (minutes > 1) {
+				msg << "s";
+			}
+		}
+		msg << " " << seconds << " second";
+		if (seconds > 1) {
+			msg << "s";
+		}
+		Logger::Status(msg.str());
+
+		std::string ifcType_count = "Found " + std::to_string(elements->size() + 1) + " elements in " + IfcUtil::path::to_utf8(argv[1]) + ": \n";
+		ifcType_number.insert(std::pair<std::string, int>("IfcProject_fail", 1));
+		for (it = ifcType_number.begin(); it != ifcType_number.end(); ++it) {
+			//std::cout << it->first << " => " << it->second << '\n';
+			ifcType_count = ifcType_count + it->first + " => " + std::to_string(it->second) + '\n';
+		}
+		//computeIfcProjectBounds(pt);
+		std::string ifcSite_minXYZ = ifcProject.get_child("IfcSite.<xmlattr>.minXYZ").get_value<std::string>();
+		std::string ifcSite_maxXYZ = ifcProject.get_child("IfcSite.<xmlattr>.maxXYZ").get_value<std::string>();
+		//composite_bounds = getBounding(ifcSite_guid, output_extension, settings, ifc_file);
+		ifcProject.put("<xmlattr>.minXYZ", ifcSite_minXYZ);
+		ifcProject.put("<xmlattr>.maxXYZ", ifcSite_maxXYZ);
+		updateXml(IfcUtil::path::to_utf8(output_filename) + "property.xml", pt);
+		//std::cout << "objectplacement 节点数目：" << objectPlacement_node.size() << std::endl;
+		std::string txtFileName = IfcUtil::path::to_utf8(output_filename) + "count.txt";
+		createTxtFile(txtFileName, ifcType_count);
+		bool successful = true;
+		return successful ? EXIT_SUCCESS : EXIT_FAILURE;
+
+	}
+	else {
         cerr_ << "[Error] Unknown output filename extension '" << output_extension << "'\n";
 		write_log(!quiet);
 		print_usage();
@@ -1030,7 +1383,7 @@ void updateXml(std::string xmlPath, ptree &node) {
 	boost::property_tree::write_xml(xmlPath, node, std::locale(), settings);
 }
 
-std::map<std::string, std::string> getBounding(std::string &element_guid, const std::string &output_extension, SerializerSettings &settings, IfcParse::IfcFile &ifc_file) {
+std::map<std::string, std::string> getBounding(std::string &element_guid, const std::string &output_extension, SerializerSettings &settings, IfcParse::IfcFile &ifc_file, int num_threads) {
 	std::map<std::string, std::string> ifcelement_bounds;
 	ifcelement_bounds.insert(std::pair<std::string, std::string>("minXYZ", "0.0 0.0 0.0"));
 	ifcelement_bounds.insert(std::pair<std::string, std::string>("maxXYZ", "0.0 0.0 0.0"));
@@ -1081,7 +1434,7 @@ std::map<std::string, std::string> getBounding(std::string &element_guid, const 
 		//return ifcelement_bounds;
 	}
 
-	IfcGeom::Iterator<real_t> context_iterator(settings, &ifc_file, filter_funcs);
+	IfcGeom::Iterator<real_t> context_iterator(settings, &ifc_file, filter_funcs, num_threads);
 
 	if (!context_iterator.initialize()) {
 		/// @todo It would be nice to know and print separate error prints for a case where we found no entities
@@ -1128,7 +1481,8 @@ std::map<std::string, std::string> getBounding(std::string &element_guid, const 
 	return ifcelement_bounds;
 }
 
-std::map<std::string, ptree*> findObjectPlacement(ptree &node) {
+
+std::map<std::string, ptree*> findObjectPlacement(ptree & node) {
 	BOOST_FOREACH(ptree::value_type &child, node.get_child("")) {
 		std::string obj_placement = child.second.get<std::string>("<xmlattr>.ObjectPlacement", "default");
 		if (obj_placement.compare("default") != 0) {

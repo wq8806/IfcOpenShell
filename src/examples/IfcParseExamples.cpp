@@ -68,7 +68,11 @@ int main(int argc, char** argv) {
 		
 		const IfcSchema::IfcBuildingElement* element = *it;
 		std::cout << element->data().toString() << std::endl;
+
+		std::cout << element->data().type()->name() << std::endl;  //IfcType
 		
+		std::cout << element->GlobalId() << std::endl;  //guid
+
 		const IfcSchema::IfcWindow* window;
 		if ((window = element->as<IfcSchema::IfcWindow>()) != 0) {
 			if (window->hasOverallWidth() && window->hasOverallHeight()) {
