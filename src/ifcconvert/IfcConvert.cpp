@@ -57,8 +57,10 @@
  //add my own header
 #include "../ifcparse/IfcFile.h";
 #ifdef USE_IFC4
+#include "../ifcparse/Ifc4.h"
 #define IfcSchema Ifc4
 #else
+#include "../ifcparse/Ifc2x3.h"
 #define IfcSchema Ifc2x3
 #endif
 
@@ -729,7 +731,7 @@ int main(int argc, char** argv) {
 		serializer = boost::make_shared<SvgSerializer>(IfcUtil::path::to_utf8(output_temp_filename), settings);
 	}
 	else if (output_extension.find('.') == std::string::npos) {  //decompose
-		settings.set(IfcGeom::IteratorSettings::USE_WORLD_COORDS, true);
+		settings.set(IfcGeom::IteratorSettings::USE_WORLD_COORDS, true);   //部件化默认使用world_coords,便于转3dTiles
 		if (!init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
 			IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename)); /**< @todo Windows Unicode support */
 			return EXIT_FAILURE;
@@ -756,7 +758,7 @@ int main(int argc, char** argv) {
 		//读取，去掉空格
 		read_xml(IfcUtil::path::to_utf8(output_filename) + "property.xml", pt, boost::property_tree::xml_parser::trim_whitespace, std::locale());
 		ptree &ifcProject = pt.get_child("ifc.decomposition.IfcProject");
-		findObjectPlacement(ifcProject);
+		findObjectPlacement(ifcProject);     //对于具有objectplacement的元素计算minxyz、maxxyz，提取出元素放入hashmap中
 
 		std::map<std::string, std::string> composite_bounds;
 		std::map<std::string, int> ifcType_number;
