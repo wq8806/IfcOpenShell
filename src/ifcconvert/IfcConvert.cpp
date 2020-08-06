@@ -731,6 +731,7 @@ int main(int argc, char** argv) {
 		serializer = boost::make_shared<SvgSerializer>(IfcUtil::path::to_utf8(output_temp_filename), settings);
 	}
 	else if (output_extension.find('.') == std::string::npos) {  //decompose
+		//导出指定guid的元素 用法如 IfcConvert ./input/sample.ifc ./output/test.glb --include+=arg GlobalId 07hc1aZW98debjzrL5HoQY --use-world-coords --use-element-guids
 		settings.set(IfcGeom::IteratorSettings::USE_WORLD_COORDS, true);   //部件化默认使用world_coords,便于转3dTiles
 		if (!init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
 			IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename)); /**< @todo Windows Unicode support */
@@ -778,6 +779,7 @@ int main(int argc, char** argv) {
 			Logger::Notice("Using " + std::to_string(num_threads) + " threads");
 		}
 
+		int i = 0;
 		for (IfcSchema::IfcProduct::list::it it = elements->begin(); it != elements->end(); ++it) {
 			const IfcSchema::IfcProduct* element = *it;
 			//std::string element_IfcType = IfcSchema::Type::ToString(element->entity->type()); //旧版ifctype
@@ -787,8 +789,8 @@ int main(int argc, char** argv) {
 			//std::string element_guid = element_tem_guid.substr(1, element_tem_guid.size() - 2);   //旧版需要去掉""
 			std::string element_guid = element_tem_guid;
 			//output_temp_filename = output_filename + IfcUtil::path::from_utf8(element_guid + TEMP_FILE_EXTENSION);     //输出guid命名
-			output_temp_filename = output_filename + IfcUtil::path::from_utf8(element_guid + "--" + element_IfcType + TEMP_FILE_EXTENSION);    //输出guid--ifcType命名
-
+			output_temp_filename = output_filename + IfcUtil::path::from_utf8(element_guid + "--" + element_IfcType +"--" + std::to_string(i) + TEMP_FILE_EXTENSION);    //输出guid--ifcType--i命名
+			
 			include_filter.type = geom_filter::ENTITY_ARG;
 			include_filter.include = true;
 			if (include_traverse_filter.type != geom_filter::UNUSED) {
@@ -982,7 +984,6 @@ int main(int argc, char** argv) {
 				serializer.reset();
 				// Renaming might fail (e.g. maybe the existing file was open in a viewer application)
 				// Do not remove the temp file as user can salvage the conversion result from it.
-				//std::string output_filename33 = output_filename;
 				size_t a = output_filename.find_last_of('/');
 				//std::cout << output_filename.size() << std::endl;
 				//std::cout << a << std::endl;
@@ -995,11 +996,16 @@ int main(int argc, char** argv) {
 					output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 3)) + "glb";
 					//output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 3)) + "dae";
 				}
-				//std::string output_filename11 = output_temp_filename.substr(0, output_temp_filename.size() - 3) + "obj";
+				
+				/*测试代码
 				std::string output_filename22 = IfcUtil::path::to_utf8(output_filename.substr(0, a + 1)) + output_filename11;
-				std::string output_filename33 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 4)) + "--" + element_IfcType + ".dae";
-				//std::cout << output_filename22 << std::endl;
-				//bool successful = rename_file(output_temp_filename, output_filename11);  //guid命名
+				std::string output_filename33 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 4)) + "--" + element_IfcType + ".dae";*/
+
+				//bool successful = rename_file(output_temp_filename, output_filename11);  //guid命名   guid中区分大小写，windows文件不区分大小写，linux区分大小写
+				/*应对guid大小写不同的情况
+				if (file_exists(IfcUtil::path::to_utf8(IfcUtil::path::from_utf8(output_filename11)))) {  //大小写不同的guid文件名特殊处理
+					output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 4)) + "--" + std::to_string(i) + ".glb";
+				}*/
 				bool successful = IfcUtil::path::rename_file(IfcUtil::path::to_utf8(output_temp_filename), output_filename11);  //guid--type.dae 命名
 
 				if (!successful) {
@@ -1028,7 +1034,6 @@ int main(int argc, char** argv) {
 
 				write_log(!quiet);
 
-
 				//bool successful = true;
 				//delete serializer;
 				//return successful ? EXIT_SUCCESS : EXIT_FAILURE;
@@ -1042,7 +1047,7 @@ int main(int argc, char** argv) {
 				(*objectMap_node).put("<xmlattr>.maxXYZ", composite_bounds["maxXYZ"]);
 			}
 
-
+			i++;
 		}
 
 		time(&end);
