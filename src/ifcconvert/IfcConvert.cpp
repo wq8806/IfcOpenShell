@@ -774,10 +774,10 @@ int main(int argc, char** argv) {
 		time_t start, end;
 		time(&start);
 
-		if (num_threads <= 0) {
+		//if (num_threads <= 0) {   默认使用硬件最大线程数
 			num_threads = std::thread::hardware_concurrency();
 			Logger::Notice("Using " + std::to_string(num_threads) + " threads");
-		}
+		//}
 
 		int i = 0;
 		for (IfcSchema::IfcProduct::list::it it = elements->begin(); it != elements->end(); ++it) {
