@@ -285,7 +285,7 @@ int main(int argc, char** argv) {
             "Applies an arbitrary offset of form 'x;y;z' to all placements.")
 		("model-rotation", po::value<std::string>(&rotation_str),
 			"Applies an arbitrary quaternion rotation of form 'x;y;z;w' to all placements.")
-		//部件化格式设置，默认为dae
+		//部件化格式设置，默认为dae    用法为IfcConvert ./input/test.ifc ./output/ 
 		("obj",
 			"Specifies whether to decompose the IFC file to obj or dae,if not "
 			"specified,dae by default.")
@@ -773,6 +773,11 @@ int main(int argc, char** argv) {
 		time_t start, end;
 		time(&start);
 
+		if (num_threads <= 0) {
+			num_threads = std::thread::hardware_concurrency();
+			Logger::Notice("Using " + std::to_string(num_threads) + " threads");
+		}
+
 		for (IfcSchema::IfcProduct::list::it it = elements->begin(); it != elements->end(); ++it) {
 			const IfcSchema::IfcProduct* element = *it;
 			//std::string element_IfcType = IfcSchema::Type::ToString(element->entity->type()); //旧版ifctype
@@ -822,8 +827,9 @@ int main(int argc, char** argv) {
 			}
 			else
 			{
+				serializer = boost::make_shared<GltfSerializer>(IfcUtil::path::to_utf8(output_temp_filename), settings);  //直接转为glb,文件后缀改为.glb
 				//转为dae
-				serializer = boost::make_shared<ColladaSerializer>(IfcUtil::path::to_utf8(output_temp_filename), settings);
+				//serializer = boost::make_shared<ColladaSerializer>(IfcUtil::path::to_utf8(output_temp_filename), settings);
 			}
 
 			if (use_element_hierarchy && decompose_obj) {
@@ -986,7 +992,8 @@ int main(int argc, char** argv) {
 				}
 				else
 				{
-					output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 3)) + "dae";
+					output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 3)) + "glb";
+					//output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 3)) + "dae";
 				}
 				//std::string output_filename11 = output_temp_filename.substr(0, output_temp_filename.size() - 3) + "obj";
 				std::string output_filename22 = IfcUtil::path::to_utf8(output_filename.substr(0, a + 1)) + output_filename11;
