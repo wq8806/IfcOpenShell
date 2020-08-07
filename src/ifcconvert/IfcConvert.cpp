@@ -762,8 +762,8 @@ int main(int argc, char** argv) {
 		findObjectPlacement(ifcProject);     //对于具有objectplacement的元素计算minxyz、maxxyz，提取出元素放入hashmap中
 
 		std::map<std::string, std::string> composite_bounds;
-		std::map<std::string, int> ifcType_number;
-		std::map<std::string, int>::iterator it;
+		std::map<std::string, int> ifcType_number;    //记录ifctype转换成功、失败的数量
+		std::vector<std::string> glb_names;
 		//IfcParse::IfcFile file = *ifc_file;
 		IfcSchema::IfcProduct::list::ptr elements = (*ifc_file).instances_by_type<IfcSchema::IfcProduct>();
 		//IfcProduct::list::ptr elements = ifc_file.entitiesByType<IfcProduct>();
@@ -1028,7 +1028,7 @@ int main(int argc, char** argv) {
 					{
 						ifcType_number.insert(std::pair<std::string, int>(element_IfcType, 1));
 					}
-
+					glb_names.push_back(element_guid + "--" + element_IfcType + "--" + std::to_string(i) + ".glb");   //转换成功记录名称
 				}
 				include_filter.values.clear();
 
@@ -1071,20 +1071,28 @@ int main(int argc, char** argv) {
 
 		std::string ifcType_count = "Found " + std::to_string(elements->size() + 1) + " elements in " + IfcUtil::path::to_utf8(argv[1]) + ": \n";
 		ifcType_number.insert(std::pair<std::string, int>("IfcProject_fail", 1));
-		for (it = ifcType_number.begin(); it != ifcType_number.end(); ++it) {
-			//std::cout << it->first << " => " << it->second << '\n';
+		for (auto it = ifcType_number.begin(); it != ifcType_number.end(); ++it) {
 			ifcType_count = ifcType_count + it->first + " => " + std::to_string(it->second) + '\n';
 		}
+
+		std::string glb_name_content = "";
+		for (auto it = glb_names.begin(); it != glb_names.end(); it++) {
+			glb_name_content += *it + ",";
+		}
+		glb_name_content = glb_name_content.substr(0, glb_name_content.size() - 1);
 		//computeIfcProjectBounds(pt);
 		std::string ifcSite_minXYZ = ifcProject.get_child("IfcSite.<xmlattr>.minXYZ").get_value<std::string>();
 		std::string ifcSite_maxXYZ = ifcProject.get_child("IfcSite.<xmlattr>.maxXYZ").get_value<std::string>();
 		//composite_bounds = getBounding(ifcSite_guid, output_extension, settings, ifc_file);
 		ifcProject.put("<xmlattr>.minXYZ", ifcSite_minXYZ);
 		ifcProject.put("<xmlattr>.maxXYZ", ifcSite_maxXYZ);
-		updateXml(IfcUtil::path::to_utf8(output_filename) + "property.xml", pt);
+		updateXml(IfcUtil::path::to_utf8(output_filename) + "property.xml", pt);       //更新element的minXYZ、maxXYZ
 		//std::cout << "objectplacement 节点数目：" << objectPlacement_node.size() << std::endl;
-		std::string txtFileName = IfcUtil::path::to_utf8(output_filename) + "count.txt";
+		std::string txtFileName = IfcUtil::path::to_utf8(output_filename) + "count.txt";   //记录转换成功、失败的element
 		createTxtFile(txtFileName, ifcType_count);
+
+		std::string outputFileNametxt = IfcUtil::path::to_utf8(output_filename) + "name.txt";   //记录转换出的glb文件名
+		createTxtFile(outputFileNametxt, glb_name_content);
 		bool successful = true;
 		return successful ? EXIT_SUCCESS : EXIT_FAILURE;
 
