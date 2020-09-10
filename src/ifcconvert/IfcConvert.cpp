@@ -1532,7 +1532,8 @@ bool createTxtFile(const std::string &filename, const std::string &content) {
 	if (!location_out.is_open())
 		return false;
 
-	location_out << content << endl;
+	//location_out << content << endl;  //endl会写入回车换行到文本中
+	location_out << content ;  //endl会写入回车换行到文本中
 	//location_out << "(" << 5 << ", " << 10 << ") \n";     //将”(5,10) 回车”写入.txt文件中
 
 	location_out.close();
