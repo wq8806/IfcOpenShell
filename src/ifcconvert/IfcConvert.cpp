@@ -733,6 +733,7 @@ int main(int argc, char** argv) {
 	else if (output_extension.find('.') == std::string::npos) {  //decompose
 		//导出指定guid的元素 用法如 IfcConvert ./input/sample.ifc ./output/test.glb --include+=arg GlobalId 07hc1aZW98debjzrL5HoQY --use-world-coords --use-element-guids
 		settings.set(IfcGeom::IteratorSettings::USE_WORLD_COORDS, true);   //部件化默认使用world_coords,便于转3dTiles
+		settings.set(SerializerSettings::USE_ELEMENT_GUIDS, true);  //转出模型内部以guid命名，例如glb nodes name
 		if (!init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
 			IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename)); /**< @todo Windows Unicode support */
 			return EXIT_FAILURE;
