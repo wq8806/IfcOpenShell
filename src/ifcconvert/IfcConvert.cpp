@@ -777,7 +777,7 @@ int main(int argc, char** argv) {
 
 		//if (num_threads <= 0) {   默认使用硬件最大线程数
 			num_threads = std::thread::hardware_concurrency();
-			Logger::Notice("Using " + std::to_string(num_threads) + " threads");
+			Logger::Status("Using " + std::to_string(num_threads) + " threads");
 		//}
 
 		int i = 0;
@@ -876,9 +876,8 @@ int main(int argc, char** argv) {
 			if (!context_iterator.initialize()) {
 				/// @todo It would be nice to know and print separate error prints for a case where we found no entities
 				/// and for a case we found no entities that satisfy our filtering criteria.
-				Logger::Error("No geometrical entities found");
-				//delete serializer;
-				//std::remove(output_temp_filename.c_str()); /**< @todo Windows Unicode support */
+				//Logger::Error("No geometrical entities found");
+
 				write_log(!quiet);
 				if (ifcType_number.count(element_IfcType + "_fail") > 0) {
 					ifcType_number[element_IfcType + "_fail"]++;
@@ -913,7 +912,7 @@ int main(int argc, char** argv) {
 
 				int old_progress = -1;
 
-				Logger::Status("Creating geometry...");
+				Logger::Status("Creating geometry..." + element_guid);
 
 				size_t num_created = 0;
 
@@ -947,37 +946,10 @@ int main(int argc, char** argv) {
 					}
 				} while (++num_created, context_iterator.next());
 
-				/*std::vector<real_t>::iterator xMax = std::max_element(std::begin(xCoords), std::end(xCoords));
-				auto  xMin = std::min_element(std::begin(xCoords), std::end(xCoords));
-				std::vector<real_t>::iterator yMax = std::max_element(std::begin(yCoords), std::end(yCoords));
-				auto  yMin = std::min_element(std::begin(yCoords), std::end(yCoords));
-				std::vector<real_t>::iterator zMax = std::max_element(std::begin(zCoords), std::end(zCoords));
-				auto  zMin = std::min_element(std::begin(zCoords), std::end(zCoords));
-
-				if (objectPlacement_node.count(element_guid) > 0) {
-				ptree* objectMap_node = objectPlacement_node[element_guid];
-				std::stringstream stream;
-				if (xCoords.size() != 0) {
-				const real_t dxMin = *xMin; const real_t dyMin = *yMin; const real_t dzMin = *zMin;
-				const real_t dxMax = *xMax; const real_t dyMax = *yMax; const real_t dzMax = *zMax;
-				stream << dxMin << " " << dyMin << " " << dzMin;
-				stream.str();
-				(*objectMap_node).put("<xmlattr>.minXYZ", stream.str());
-				stream.clear();
-				stream.str("");
-				stream << dxMax << " " << dyMax << " " << dzMax;
-				(*objectMap_node).put("<xmlattr>.maxXYZ", stream.str());
-				}
-				else {
-				std::cout << "mesh.verts is null" << std::endl;
-				(*objectMap_node).put("<xmlattr>.minXYZ", "0.0 0.0 0.0");
-				(*objectMap_node).put("<xmlattr>.maxXYZ", "0.0 0.0 0.0");
-				}
-
-
-				}*/
-
-				Logger::Status("\rDone creating geometry (" + boost::lexical_cast<std::string>(num_created) +
+				/*Logger::Status("\rDone creating geometry (" + boost::lexical_cast<std::string>(num_created) +
+					" objects)                                " + element_guid );*/
+				const std::string task = ((num_threads == 1) ? "creating" : "writing");
+				Logger::Status("\rDone " + task + " geometry (" + boost::lexical_cast<std::string>(num_created) +
 					" objects)                                ");
 
 				serializer->finalize();
@@ -1057,7 +1029,7 @@ int main(int argc, char** argv) {
 		std::stringstream msg;
 		int minutes = seconds / 60;
 		seconds = seconds % 60;
-		msg << "\nConversion took";
+		msg << "\nDecompose took";
 		if (minutes > 0) {
 			msg << " " << minutes << " minute";
 			if (minutes > 1) {
@@ -1454,7 +1426,6 @@ std::map<std::string, std::string> getBounding(std::string &element_guid, const 
 	std::vector<IfcGeom::filter_t> filter_funcs = setup_filters(used_filters, output_extension);
 	if (filter_funcs.empty()) {
 		std::cerr << "[Error] Failed to set up geometry filters\n";
-		//return ifcelement_bounds;
 	}
 
 	IfcGeom::Iterator<real_t> context_iterator(settings, &ifc_file, filter_funcs, num_threads);
@@ -1462,8 +1433,7 @@ std::map<std::string, std::string> getBounding(std::string &element_guid, const 
 	if (!context_iterator.initialize()) {
 		/// @todo It would be nice to know and print separate error prints for a case where we found no entities
 		/// and for a case we found no entities that satisfy our filtering criteria.
-		Logger::Error("No geometrical entities found");
-		//return ifcelement_bounds;
+		//Logger::Error("No geometrical entities found");
 	}
 	else
 	{
