@@ -2,63 +2,64 @@ import ifcopenshell.util
 import ifcopenshell.util.element
 import lark
 
+cobie_type_assets = [
+    'IfcDoorStyle',
+    'IfcBuildingElementProxyType',
+    'IfcChimneyType',
+    'IfcCoveringType',
+    'IfcDoorType',
+    'IfcFootingType',
+    'IfcPileType',
+    'IfcRoofType',
+    'IfcShadingDeviceType',
+    'IfcWindowType',
+    'IfcDistributionControlElementType',
+    'IfcDistributionChamberElementType',
+    'IfcEnergyConversionDeviceType',
+    'IfcFlowControllerType',
+    'IfcFlowMovingDeviceType',
+    'IfcFlowStorageDeviceType',
+    'IfcFlowTerminalType',
+    'IfcFlowTreatmentDeviceType',
+    'IfcElementAssemblyType',
+    'IfcBuildingElementPartType',
+    'IfcDiscreteAccessoryType',
+    'IfcMechanicalFastenerType',
+    'IfcReinforcingElementType',
+    'IfcVibrationIsolatorType',
+    'IfcFurnishingElementType',
+    'IfcGeographicElementType',
+    'IfcTransportElementType',
+    'IfcSpatialZoneType',
+    'IfcWindowStyle',
+]
+cobie_component_assets = [
+    'IfcBuildingElementProxy',
+    'IfcChimney',
+    'IfcCovering',
+    'IfcDoor',
+    'IfcShadingDevice',
+    'IfcWindow',
+    'IfcDistributionControlElement',
+    'IfcDistributionChamberElement',
+    'IfcEnergyConversionDevice',
+    'IfcFlowController',
+    'IfcFlowMovingDevice',
+    'IfcFlowStorageDevice',
+    'IfcFlowTerminal',
+    'IfcFlowTreatmentDevice',
+    'IfcDiscreteAccessory',
+    'IfcTendon',
+    'IfcTendonAnchor',
+    'IfcVibrationIsolator',
+    'IfcFurnishingElement',
+    'IfcGeographicElement',
+    'IfcTransportElement',
+]
+
 class Selector():
     def parse(self, ifc_file, query):
         self.file = ifc_file
-        self.cobie_type_assets = [
-            'IfcDoorStyle',
-            'IfcBuildingElementProxyType',
-            'IfcChimneyType',
-            'IfcCoveringType',
-            'IfcDoorType',
-            'IfcFootingType',
-            'IfcPileType',
-            'IfcRoofType',
-            'IfcShadingDeviceType',
-            'IfcWindowType',
-            'IfcDistributionControlElementType',
-            'IfcDistributionChamberElementType',
-            'IfcEnergyConversionDeviceType',
-            'IfcFlowControllerType',
-            'IfcFlowMovingDeviceType',
-            'IfcFlowStorageDeviceType',
-            'IfcFlowTerminalType',
-            'IfcFlowTreatmentDeviceType',
-            'IfcElementAssemblyType',
-            'IfcBuildingElementPartType',
-            'IfcDiscreteAccessoryType',
-            'IfcMechanicalFastenerType',
-            'IfcReinforcingElementType',
-            'IfcVibrationIsolatorType',
-            'IfcFurnishingElementType',
-            'IfcGeographicElementType',
-            'IfcTransportElementType',
-            'IfcSpatialZoneType',
-            'IfcWindowStyle',
-            ]
-        self.cobie_component_assets = [
-            'IfcBuildingElementProxy',
-            'IfcChimney',
-            'IfcCovering',
-            'IfcDoor',
-            'IfcShadingDevice',
-            'IfcWindow',
-            'IfcDistributionControlElement',
-            'IfcDistributionChamberElement',
-            'IfcEnergyConversionDevice',
-            'IfcFlowController',
-            'IfcFlowMovingDevice',
-            'IfcFlowStorageDevice',
-            'IfcFlowTerminal',
-            'IfcFlowTreatmentDevice',
-            'IfcDiscreteAccessory',
-            'IfcTendon',
-            'IfcTendonAnchor',
-            'IfcVibrationIsolator',
-            'IfcFurnishingElement',
-            'IfcGeographicElement',
-            'IfcTransportElement',
-            ]
 
         l = lark.Lark('''start: query (lfunction query)*
                     query: selector | group
@@ -172,14 +173,14 @@ class Selector():
     def get_class_selector(self, class_selector):
         if class_selector.children[0] == 'COBie':
             elements = []
-            for ifc_class in self.cobie_component_assets:
+            for ifc_class in cobie_component_assets:
                 try:
                     elements += self.file.by_type(ifc_class)
                 except:
                     pass
         elif class_selector.children[0] == 'COBieType':
             elements = []
-            for ifc_class in self.cobie_type_assets:
+            for ifc_class in cobie_type_assets:
                 try:
                     elements += self.file.by_type(ifc_class)
                 except:
@@ -210,6 +211,15 @@ class Selector():
         return results
 
     def get_element_value(self, element, key):
+        if '.' in key \
+                and key.split('.')[0] == 'type':
+            try:
+                element = ifcopenshell.util.element.get_type(element)
+                if not element:
+                    return None
+            except:
+                return
+            key = '.'.join(key.split('.')[1:])
         info = element.get_info()
         if key in info:
             return info[key]

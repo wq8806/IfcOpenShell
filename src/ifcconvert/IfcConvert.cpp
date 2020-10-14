@@ -87,10 +87,12 @@ using boost::property_tree::ptree;
 
 #if defined(_MSC_VER) && defined(_UNICODE)
 typedef std::wstring path_t;
+typedef std::wofstream ofstream_t;
 static std::wostream& cout_ = std::wcout;
 static std::wostream& cerr_ = std::wcerr;
 #else
 typedef std::string path_t;
+typedef std::ofstream ofstream_t;
 static std::ostream& cout_ = std::cout;
 static std::ostream& cerr_ = std::cerr;
 #endif
@@ -201,6 +203,14 @@ std::vector<IfcGeom::filter_t> setup_filters(const std::vector<geom_filter>&, co
 
 bool init_input_file(const std::string& filename, IfcParse::IfcFile*& ifc_file, bool no_progress, bool mmap);
 
+// from https://stackoverflow.com/questions/31696328/boost-program-options-using-zero-parameter-options-multiple-times
+struct verbosity_counter {
+	int count;
+	verbosity_counter(int c = 0) {
+		count = c;
+	}
+};
+
 #if defined(_MSC_VER) && defined(_UNICODE)
 int wmain(int argc, wchar_t** argv) {
 	typedef po::wcommand_line_parser command_line_parser;
@@ -214,25 +224,28 @@ int main(int argc, char** argv) {
 	typedef char char_t;
 #endif
 
-	double deflection_tolerance;
+	double deflection_tolerance, angular_tolerance, force_space_transparency;
 	inclusion_filter include_filter;
 	inclusion_traverse_filter include_traverse_filter;
 	exclusion_filter exclude_filter;
 	exclusion_traverse_filter exclude_traverse_filter;
 	path_t filter_filename;
 	path_t default_material_filename;
+	path_t log_file;
 	std::string log_format;
 
     po::options_description generic_options("Command line options");
+	verbosity_counter vcounter;
 	generic_options.add_options()
 		("help,h", "display usage information")
 		("version", "display version information")
-		("verbose,v", "more verbose log messages")
+		("verbose,v", po::value(&vcounter)->zero_tokens(), "more verbose log messages")
 		("quiet,q", "less status and progress output")
 		("stderr-progress", "output progress to stderr stream")
 		("yes,y", "answer 'yes' automatically to possible confirmation queries (e.g. overwriting an existing output file)")
 		("no-progress", "suppress possible progress bar type of prints that use carriage return")
-		("log-format", po::value<std::string>(&log_format), "log format: plain or json");
+		("log-format", po::value<std::string>(&log_format), "log format: plain or json")
+		("log-file", new po::typed_value<path_t, char_t>(&log_file), "redirect log output to file");
 
     po::options_description fileio_options;
 	fileio_options.add_options()
@@ -344,6 +357,10 @@ int main(int argc, char** argv) {
 			"model in other modelling application in any case.")
 		("deflection-tolerance", po::value<double>(&deflection_tolerance)->default_value(1e-3),
 			"Sets the deflection tolerance of the mesher, 1e-3 by default if not specified.")
+		("force-space-transparency", po::value<double>(&force_space_transparency),
+			"Overrides transparency of spaces in geometry output.")
+		("angular-tolerance", po::value<double>(&angular_tolerance)->default_value(0.5),
+			"Sets the angular tolerance of the mesher in radians 0.5 by default if not specified.")
 		("generate-uvs",
 			"Generates UVs (texture coordinates) by using simple box projection. Requires normals. "
 			"Not guaranteed to work properly if used with --weld-vertices.")
@@ -358,6 +375,8 @@ int main(int argc, char** argv) {
 #endif
     short precision;
 	double section_height;
+	std::string svg_scale, svg_center;
+	std::string section_ref, elevation_ref;
 
     po::options_description serializer_options("Serialization options");
     serializer_options.add_options()
@@ -369,16 +388,28 @@ int main(int argc, char** argv) {
         ("bounds", po::value<std::string>(&bounds),
             "Specifies the bounding rectangle, for example 512x512, to which the "
             "output will be scaled. Only used when converting to SVG.")
+		("scale", po::value<std::string>(&svg_scale),
+			"Interprets SVG bounds in mm, centers layout and draw elements to scale. "
+			"Only used when converting to SVG. Example 1:100.")
+		("center", po::value<std::string>(&svg_center),
+			"When using --scale, specifies the location in the range [0 1]x[0 1] around which"
+			"to center the drawings. Example 0.5x0.5 (default).")
+		("section-ref", po::value<std::string>(&section_ref),
+			"Element at which vertical cross sections should be created")
+		("elevation-ref", po::value<std::string>(&elevation_ref),
+			"Element at which vertical elevations should be created")
 		("door-arcs", "Draw door openings arcs for IfcDoor elements")
 		("section-height", po::value<double>(&section_height),
 		    "Specifies the cut section height for SVG 2D geometry.")
 		("section-height-from-storeys", "Derives section height from storey elevation. Use --section-height to override default offset of 1")
 		("use-element-names",
-            "Use entity names instead of unique IDs for naming elements upon serialization. "
+            "Use entity instance IfcRoot.Name instead of unique IDs for naming elements upon serialization. "
             "Applicable for OBJ, DAE, and SVG output.")
         ("use-element-guids",
-            "Use entity GUIDs instead of unique IDs for naming elements upon serialization. "
+            "Use entity instance IfcRoot.GlobalId instead of unique IDs for naming elements upon serialization. "
             "Applicable for OBJ, DAE, and SVG output.")
+		("use-element-numeric-ids", "Use the numeric step identifier (entity instance name) for naming elements upon serialization. "
+			"Applicable for OBJ, DAE, and SVG output.")
         ("use-material-names",
             "Use material names instead of unique IDs for naming materials upon serialization. "
             "Applicable for OBJ and DAE output.")
@@ -434,7 +465,6 @@ int main(int argc, char** argv) {
     po::notify(vmap);
 
 	const bool mmap = vmap.count("mmap") != 0;
-	const bool verbose = vmap.count("verbose") != 0;
 	const bool no_progress = vmap.count("no-progress") != 0;
 	const bool quiet = vmap.count("quiet") != 0;
 	const bool stderr_progress = vmap.count("stderr-progress") != 0;
@@ -452,6 +482,7 @@ int main(int argc, char** argv) {
 	const bool layerset_first = vmap.count("layerset-first") != 0;
 	const bool use_element_names = vmap.count("use-element-names") != 0;
 	const bool use_element_guids = vmap.count("use-element-guids") != 0;
+	const bool use_element_stepids = vmap.count("use-element-numeric-ids") != 0;
 	const bool use_material_names = vmap.count("use-material-names") != 0;
 	const bool use_element_types = vmap.count("use-element-types") != 0;
 	const bool use_element_hierarchy = vmap.count("use-element-hierarchy") != 0;
@@ -530,8 +561,8 @@ int main(int argc, char** argv) {
         }
     }
 
-	boost::optional<double> bounding_width;
-	boost::optional<double> bounding_height;
+	boost::optional<double> bounding_width, bounding_height, relative_center_x, relative_center_y;
+
 	if (vmap.count("bounds") == 1) {
 		int w, h;
 		if (sscanf(bounds.c_str(), "%ux%u", &w, &h) == 2 && w > 0 && h > 0) {
@@ -540,6 +571,18 @@ int main(int argc, char** argv) {
 		} else {
 			cerr_ << "[Error] Invalid use of --bounds" << std::endl;
             print_options(serializer_options);
+			return EXIT_FAILURE;
+		}
+	}
+
+	if (vmap.count("center") == 1) {
+		double cx, cy;
+		if (sscanf(svg_center.c_str(), "%lfx%lf", &cx, &cy) == 2 && cx >= 0. && cy >= 0. && cx <= 1. && cy <= 1.) {
+			relative_center_x = cx;
+			relative_center_y = cy;
+		} else {
+			cerr_ << "[Error] Invalid use of --bounds" << std::endl;
+			print_options(serializer_options);
 			return EXIT_FAILURE;
 		}
 	}
@@ -571,8 +614,21 @@ int main(int argc, char** argv) {
         }
     }
 
-	Logger::SetOutput(quiet ? nullptr : &cout_, &log_stream);
-	Logger::Verbosity(verbose ? Logger::LOG_NOTICE : Logger::LOG_ERROR);
+	ofstream_t log_fs;
+
+	if (vmap.count("log-file")) {
+		log_fs.open(log_file.c_str(), std::ios::app);
+		Logger::SetOutput(quiet ? nullptr : &cout_, &log_fs);
+	} else {
+		Logger::SetOutput(quiet ? nullptr : &cout_, vcounter.count > 1 ? &cout_ : &log_stream);
+	}
+
+	Logger::Verbosity(vcounter.count
+		? (vcounter.count > 1
+		? Logger::LOG_DEBUG 
+		: Logger::LOG_NOTICE)
+		: Logger::LOG_ERROR
+	);
 
     path_t output_temp_filename = output_filename + IfcUtil::path::from_utf8(TEMP_FILE_EXTENSION);
 
@@ -673,7 +729,7 @@ int main(int argc, char** argv) {
 			output_temp_filename.push_back(static_cast<path_t::value_type>(index_dist(rng)));
 		}
 		{
-			std::string v = ".tmp.";
+			std::string v = ".tmp";
 			output_temp_filename += path_t(v.begin(), v.end());
 		}
 	}
@@ -703,11 +759,18 @@ int main(int argc, char** argv) {
 
     settings.set(SerializerSettings::USE_ELEMENT_NAMES, use_element_names);
     settings.set(SerializerSettings::USE_ELEMENT_GUIDS, use_element_guids);
-    settings.set(SerializerSettings::USE_MATERIAL_NAMES, use_material_names);
+	settings.set(SerializerSettings::USE_ELEMENT_STEPIDS, use_element_stepids);
+	settings.set(SerializerSettings::USE_MATERIAL_NAMES, use_material_names);
 	settings.set(SerializerSettings::USE_ELEMENT_TYPES, use_element_types);
 	settings.set(SerializerSettings::USE_ELEMENT_HIERARCHY, use_element_hierarchy);
     settings.set_deflection_tolerance(deflection_tolerance);
-    settings.precision = precision;
+	settings.set_angular_tolerance(angular_tolerance);
+	settings.precision = precision;
+
+	if (vmap.count("force-space-transparency")) {
+		settings.force_space_transparency(force_space_transparency);
+		IfcGeom::update_default_style("IfcSpace").Transparency().reset(force_space_transparency);
+	}
 
 	boost::shared_ptr<GeometrySerializer> serializer; /**< @todo use std::unique_ptr when possible */
 	if (output_extension == OBJ) {
@@ -1126,7 +1189,11 @@ int main(int argc, char** argv) {
 		Logger::Status("Creating geometry...");
 	}
 
-	Logger::SetOutput(quiet ? nullptr : &cout_, &log_stream);
+	if (vmap.count("log-file")) {
+		Logger::SetOutput(quiet ? nullptr : &cout_, &log_fs);
+	} else {
+		Logger::SetOutput(quiet ? nullptr : &cout_, vcounter.count > 1 ? &cout_ : &log_stream);
+	}
 
 	if (model_rotation) {
 		std::array<double, 4> &rotation = settings.rotation;
@@ -1227,6 +1294,25 @@ int main(int argc, char** argv) {
 		if (vmap.count("door-arcs")) {
 			static_cast<SvgSerializer*>(serializer.get())->setDrawDoorArcs(true);
 		}
+		if (vmap.count("scale")) {
+			int s0, s1;
+			if (sscanf(svg_scale.c_str(), "%u:%u", &s0, &s1) == 2 && s0 > 0 && s1 > 0) {
+				static_cast<SvgSerializer*>(serializer.get())->setScale((double)s0 / s1);
+			} else {
+				cerr_ << "[Error] Invalid use of --scale" << std::endl;
+				print_options(serializer_options);
+				return EXIT_FAILURE;
+			}
+		}
+		if (vmap.count("section-ref")) {
+			static_cast<SvgSerializer*>(serializer.get())->setSectionRef(section_ref);
+		}
+		if (vmap.count("elevation-ref")) {
+			static_cast<SvgSerializer*>(serializer.get())->setElevationRef(elevation_ref);
+		}
+		if (relative_center_x && relative_center_y) {
+			static_cast<SvgSerializer*>(serializer.get())->setDrawingCenter(*relative_center_x, *relative_center_y);
+		}
 	}
 
     if (convert_back_units) {
@@ -1282,6 +1368,9 @@ int main(int argc, char** argv) {
 				cout_ << std::flush;
 				if (stderr_progress)
 					cerr_ << std::flush;
+			} else if (vcounter.count == 2) {
+				const int progress = context_iterator.progress();
+				Logger::Message(Logger::LOG_DEBUG, "Progress " + boost::lexical_cast<std::string>(progress));
 			} else {
 				const int progress = context_iterator.progress() / 2;
 				if (old_progress != progress) Logger::ProgressBar(progress);
@@ -1644,6 +1733,11 @@ void parse_filter(geom_filter &filter, const std::vector<std::string>& values)
         throw po::validation_error(po::validation_error::invalid_option_value);
     }
     filter.values.insert(values.begin() + (filter.type == geom_filter::ENTITY_ARG ? 2 : 1), values.end());
+}
+
+void validate(boost::any& v, const std::vector<std::string>& values, verbosity_counter*, long) {
+	if (v.empty()) v = verbosity_counter{ 1 };
+	else ++boost::any_cast<verbosity_counter&>(v).count;
 }
 
 void validate(boost::any& v, const std::vector<std::string>& values, inclusion_filter*, int)

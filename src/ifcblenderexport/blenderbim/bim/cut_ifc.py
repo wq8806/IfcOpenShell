@@ -1,9 +1,11 @@
 import os
+import re
 import math
 import time
 import numpy
 import pickle
 import sys
+import multiprocessing
 
 try:
     from OCC.Core import (
@@ -24,6 +26,7 @@ try:
         ShapeAnalysis,
         TopTools,
         TopExp,
+        TopAbs,
         HLRAlgo,
         HLRBRep,
         TopLoc,
@@ -54,6 +57,7 @@ except ImportError:
         ShapeAnalysis,
         TopTools,
         TopExp,
+        TopAbs,
         HLRAlgo,
         HLRBRep,
         TopLoc,
@@ -68,6 +72,8 @@ except ImportError:
 
 import ifcopenshell
 import ifcopenshell.geom
+import ifcopenshell.util.selector
+import ifcopenshell.util.element
 
 cwd = os.path.dirname(os.path.realpath(__file__))
 this_file = os.path.join(cwd, 'cut_ifc.py')
@@ -145,13 +151,15 @@ def do_cut(process_data):
 
 class IfcCutter:
     def __init__(self):
-        self.ifc_attribute_extractor = None
+        self.time = None
+        self.selector = ifcopenshell.util.selector.Selector()
         self.product_shapes = []
         self.background_elements = []
         self.cut_polygons = []
         self.template_variables = {}
         self.metadata = {}
         self.data_dir = ''
+        self.vector_style = ''
         self.ifc_filenames = []
         self.ifc_files = {}
         self.resolved_pixels = set()
@@ -161,6 +169,7 @@ class IfcCutter:
         self.cut_pickle_file = 'cut.pickle'
         self.should_recut = True
         self.should_recut_selected = True
+        self.cut_objects = ''
         self.selected_global_ids = []
         self.should_extract = True
         self.diagram_name = None
@@ -178,50 +187,36 @@ class IfcCutter:
         }
 
     def cut(self):
-        start_time = time.time()
-        print('# Load files')
+        self.profile_code('Starting cut process')
         self.load_ifc_files()
-        print('# Timer logged at {:.2f} seconds'.format(time.time() - start_time))
-        start_time = time.time()
-        print('# Extract template variables')
+        self.profile_code('Load IFC files')
         self.get_template_variables()
-        print('# Timer logged at {:.2f} seconds'.format(time.time() - start_time))
-        start_time = time.time()
-        print('# Get product shapes')
+        self.profile_code('Get template variables')
         self.get_product_shapes()
-        print('# Timer logged at {:.2f} seconds'.format(time.time() - start_time))
-        start_time = time.time()
-        print('# Create section box')
+        self.profile_code('Get product shapes')
         self.create_section_box()
-        print('# Timer logged at {:.2f} seconds'.format(time.time() - start_time))
-        start_time = time.time()
-        print('# Get cut polygons')
+        self.profile_code('Create section box')
         self.get_cut_polygons()
-        print('# Timer logged at {:.2f} seconds'.format(time.time() - start_time))
-        start_time = time.time()
-        print('# Get cut polygon metadata')
+        self.profile_code('Get cut polygons')
+        self.get_annotation()
+        self.profile_code('Get annotation')
         self.get_cut_polygon_metadata()
-        print('# Timer logged at {:.2f} seconds'.format(time.time() - start_time))
+        self.profile_code('Get cut polygon metadata')
 
+        # should_get_background is False in production as this is experimental
         if not self.should_get_background:
             return
 
-        start_time = time.time()
-        print('# Get background elements')
         self.get_background_elements()
-        print('# Timer logged at {:.2f} seconds'.format(time.time() - start_time))
-        start_time = time.time()
-        print('# Sort background elements')
         self.sort_background_elements(reverse=True)
-        print('# Timer logged at {:.2f} seconds'.format(time.time() - start_time))
-        start_time = time.time()
-        print('# Merge background_elements')
         self.merge_background_elements()
-        print('# Timer logged at {:.2f} seconds'.format(time.time() - start_time))
-        start_time = time.time()
-        print('# Sort background elements')
         self.sort_background_elements()
-        print('# Timer logged at {:.2f} seconds'.format(time.time() - start_time))
+
+    def profile_code(self, message):
+        if not self.time:
+            self.time = time.time()
+        print('{} :: {:.2f}'.format(message, time.time() - self.time))
+        self.time = time.time()
 
     def load_ifc_files(self):
         if not self.should_recut and not self.should_extract:
@@ -265,10 +260,10 @@ class IfcCutter:
             if element:
                 if '{{' in variable.prop_key:
                     prop_key = variable.prop_key.split('{{')[1].split('}}')[0]
-                    prop_value = self.ifc_attribute_extractor.get_element_key(element, prop_key)
+                    prop_value = self.selector.get_element_value(element, prop_key)
                     variable_value = eval(variable.prop_key.replace('{{' + prop_key + '}}', str(prop_value)))
                 else:
-                    variable_value = self.ifc_attribute_extractor.get_element_key(element, variable.prop_key)
+                    variable_value = self.selector.get_element_value(element, variable.prop_key)
                 text_obj_data[variable.name] = variable_value
         return text_obj_data
 
@@ -288,12 +283,10 @@ class IfcCutter:
                 with open(shape_pickle, 'rb') as shape_file:
                     shape_map = pickle.load(shape_file)
 
-            # TODO: This should perhaps be configurable, e.g. spaces cut to show zones in the drawing
-            products.extend(ifc_file.by_type('IfcElement'))
+            products.extend(self.selector.parse(ifc_file, self.cut_objects))
 
-            total_products = len(products)
+            selected_elements = []
             for i, product in enumerate(products):
-                print('{}/{} geometry processed ...'.format(i, total_products), end='\r', flush=True)
                 if product.is_a('IfcOpeningElement') \
                         or product.is_a('IfcSite') \
                         or product.Representation is None \
@@ -302,19 +295,38 @@ class IfcCutter:
                 try:
                     if self.should_recut_selected \
                             and product.GlobalId in self.selected_global_ids:
-                        shape = ifcopenshell.geom.create_shape(settings, product).geometry
-                        shape_map[product.GlobalId] = shape
+                        selected_elements.append(product)
                     elif product.GlobalId in shape_map:
                         shape = shape_map[product.GlobalId]
+                        self.add_product_shape(product, shape)
                     else:
-                        shape = ifcopenshell.geom.create_shape(settings, product).geometry
-                        shape_map[product.GlobalId] = shape
-                    self.product_shapes.append((product, shape))
+                        selected_elements.append(product)
                 except:
                     print('Failed to create shape for {}'.format(product))
 
+            if selected_elements:
+                total = 0
+                checkpoint = time.time()
+                iterator = ifcopenshell.geom.iterator(
+                    settings, ifc_file, multiprocessing.cpu_count(), include=selected_elements)
+                valid_file = iterator.initialize()
+                if valid_file:
+                    while True:
+                        total += 1
+                        if total % 250 == 0:
+                            print('{} elements processed in {:.2f}s ...'.format(total, time.time() - checkpoint))
+                            checkpoint = time.time()
+                        shape = iterator.get()
+                        shape_map[shape.data.guid] = shape.geometry
+                        self.add_product_shape(ifc_file.by_guid(shape.data.guid), shape.geometry)
+                        if not iterator.next():
+                            break
+
             with open(shape_pickle, 'wb') as shape_file:
                 pickle.dump(shape_map, shape_file, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def add_product_shape(self, product, shape):
+        self.product_shapes.append((product, shape))
 
     def has_annotation(self, element):
         for representation in element.Representation.Representations:
@@ -660,6 +672,75 @@ class IfcCutter:
         else:
             self.get_pickled_cut_polygons()
 
+    def get_annotation(self):
+        import mathutils
+        self.annotation_objs = []
+        settings_2d = ifcopenshell.geom.settings()
+        settings_2d.set(settings_2d.INCLUDE_CURVES, True)
+        settings_py = ifcopenshell.geom.settings()
+        settings_py.set(settings_py.USE_PYTHON_OPENCASCADE, True)
+        for ifc_file in self.ifc_files.values():
+            for element in ifc_file.by_type('IfcElement'):
+                annotation_representation = None
+                box_representation = None
+                for representation in element.Representation.Representations:
+                    if representation.ContextOfItems.ContextType == 'Plan' \
+                            and representation.ContextOfItems.ContextIdentifier == 'Annotation':
+                        annotation_representation = representation
+                    elif representation.ContextOfItems.ContextType == 'Model' \
+                            and representation.ContextOfItems.ContextIdentifier == 'Box':
+                        box_representation = representation
+                if not annotation_representation or not box_representation:
+                    continue
+
+                # This is bad code. See bug #85 to make it slightly less bad.
+                # Effectively if the bbox does not intersect with the camera
+                # plane, then we should "continue" and not process the 2D
+                # wireframe. This approach works but is not very smart.
+                for subelement in ifc_file.traverse(box_representation):
+                    if subelement.is_a('IfcBoundingBox'):
+                        block = ifc_file.createIfcBlock(
+                            ifc_file.createIfcAxis2Placement3D(subelement.Corner, None, None),
+                            subelement.XDim,
+                            subelement.YDim,
+                            subelement.ZDim
+                        )
+                        for inverse in ifc_file.get_inverse(subelement):
+                            ifcopenshell.util.element.replace_attribute(inverse, subelement, block)
+                element.Representation.Representations = [box_representation]
+                shape = ifcopenshell.geom.create_shape(settings_py, element)
+
+                section = BRepAlgoAPI.BRepAlgoAPI_Section(self.section_box['face'], shape.geometry).Shape()
+                section_edges = get_booleaned_edges(section)
+
+                if len(section_edges) <= 0:
+                    # The bounding box of the annotation object does not
+                    # intersect with the camera plane, so don't bother drawing
+                    # the annotation
+                    continue
+
+                # Monkey patch - see bug #771.
+                element.Representation.Representations = [annotation_representation]
+                shape = ifcopenshell.geom.create_shape(settings_2d, element)
+                if hasattr(shape, 'geometry'):
+                    geometry = shape.geometry
+                else:
+                    geometry = shape
+                e = geometry.edges
+                v = geometry.verts
+                m = shape.transformation.matrix.data
+                mat = mathutils.Matrix(([m[0], m[1], m[2], 0],
+                                        [m[3], m[4], m[5], 0],
+                                        [m[6], m[7], m[8], 0],
+                                        [m[9], m[10], m[11], 1]))
+                mat.transpose()
+                self.annotation_objs.append({
+                    'raw': element,
+                    'classes': self.get_classes(element, 'annotation'),
+                    'edges': [[e[i], e[i + 1]] for i in range(0, len(e), 2)],
+                    'vertices': [mat @ mathutils.Vector((v[i], v[i + 1], v[i + 2])) for i in range(0, len(v), 3)]
+                })
+
     def get_cut_polygon_metadata(self):
         if not self.should_extract:
             if os.path.isfile(self.metadata_pickle_file):
@@ -686,7 +767,6 @@ class IfcCutter:
     def get_fresh_cut_polygons(self):
         process_data = [(p.GlobalId, s, self.section_box['face'], self.transformation_data) for p, s in self.product_shapes]
 
-        import multiprocessing
         import bpy
         multiprocessing.set_executable(bpy.app.binary_path_python)
 
@@ -716,8 +796,17 @@ class IfcCutter:
         classes = [position, element.is_a()]
         for association in element.HasAssociations:
             if association.is_a('IfcRelAssociatesMaterial'):
-                classes.append('material-{}'.format(self.get_material_name(association.RelatingMaterial)))
+                classes.append('material-{}'.format(
+                    re.sub('[^0-9a-zA-Z]+', '', self.get_material_name(association.RelatingMaterial))
+                ))
         classes.append('globalid-{}'.format(element.GlobalId))
+        for attribute in self.attributes:
+            result = self.selector.get_element_value(element, attribute)
+            if result:
+                classes.append('{}-{}'.format(
+                    re.sub('[^0-9a-zA-Z]+', '', attribute),
+                    re.sub('[^0-9a-zA-Z]+', '', result)
+                ))
         return classes
 
     def get_material_name(self, element):

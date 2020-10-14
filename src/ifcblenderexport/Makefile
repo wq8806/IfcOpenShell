@@ -26,13 +26,22 @@ endif
 	cp -r blenderbim/* dist/blenderbim/
 
 	# Provides IfcOpenShell Python functionality
-	cd dist/working && wget https://s3.amazonaws.com/ifcopenshell-builds/ifcblender-python-37-v0.6.0-e9a9c1a-$(PLATFORM)64.zip
+	cd dist/working && wget https://s3.amazonaws.com/ifcopenshell-builds/ifcblender-python-37-v0.6.0-ca6adff-$(PLATFORM)64.zip
 	cd dist/working && unzip ifcblender*
 	cp -r dist/working/io_import_scene_ifc/ifcopenshell dist/blenderbim/libs/site/packages/
 	# See bug #812
 	cd dist/working && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcblenderexport/occ_utils.py
 	cd dist/working && mv occ_utils.py ../blenderbim/libs/site/packages/ifcopenshell/geom/occ_utils.py
 	rm -rf dist/working
+	# IfcOpenBot sometimes lags behind, so we hotfix the Python utilities
+	cd dist/blenderbim/libs/site/packages/ifcopenshell/util && rm -f element.py
+	cd dist/blenderbim/libs/site/packages/ifcopenshell/util && rm -f geolocation.py
+	cd dist/blenderbim/libs/site/packages/ifcopenshell/util && rm -f selector.py
+	cd dist/blenderbim/libs/site/packages/ifcopenshell/util && rm -f unit.py
+	cd dist/blenderbim/libs/site/packages/ifcopenshell/util && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcopenshell-python/ifcopenshell/util/element.py
+	cd dist/blenderbim/libs/site/packages/ifcopenshell/util && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcopenshell-python/ifcopenshell/util/geolocation.py
+	cd dist/blenderbim/libs/site/packages/ifcopenshell/util && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcopenshell-python/ifcopenshell/util/selector.py
+	cd dist/blenderbim/libs/site/packages/ifcopenshell/util && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcopenshell-python/ifcopenshell/util/unit.py
 
 	# Provides Python OCC functionality for cutting IFC geometry for construction documentation
 	mkdir dist/working
@@ -230,7 +239,15 @@ endif
 	mkdir dist/blenderbim/libs/site/packages/features/steps/
 	cd dist/blenderbim/libs/site/packages/features/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/environment.py
 	cd dist/blenderbim/libs/site/packages/features/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/template.html
+	cd dist/blenderbim/libs/site/packages/features/steps/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/steps/classification.py
+	cd dist/blenderbim/libs/site/packages/features/steps/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/steps/element_classes.py
+	cd dist/blenderbim/libs/site/packages/features/steps/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/steps/geocoding.py
+	cd dist/blenderbim/libs/site/packages/features/steps/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/steps/geolocation.py
+	cd dist/blenderbim/libs/site/packages/features/steps/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/steps/geometric_detail.py
+	cd dist/blenderbim/libs/site/packages/features/steps/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/steps/model_federation.py
+	cd dist/blenderbim/libs/site/packages/features/steps/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/steps/project_setup.py
 	cd dist/blenderbim/libs/site/packages/features/steps/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/steps/steps.py
+	cd dist/blenderbim/libs/site/packages/features/steps/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcbimtester/features/steps/utils.py
 
 	# Required by IFCCOBie for XLSX support
 	mkdir dist/working
@@ -261,6 +278,27 @@ endif
 
 	# Provides IFCCSV functionality
 	cd dist/blenderbim/libs/site/packages/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifccsv/ifccsv.py
+
+	# Provides IFCJSON functionality
+	mkdir dist/working
+	cd dist/working && wget https://github.com/IFCJSON-Team/IFC2JSON_python/archive/master.zip
+	cd dist/working && unzip master.zip
+	cp -r dist/working/IFC2JSON_python-master/ifcjson dist/blenderbim/libs/site/packages/
+	rm -rf dist/working
+
+	# Provides IFCPatch functionality
+	cd dist/blenderbim/libs/site/packages/ && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/ifcpatch.py
+	cd dist/blenderbim/libs/site/packages/ && mkdir recipes
+	cd dist/blenderbim/libs/site/packages/recipes && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/recipes/__init__.py
+	cd dist/blenderbim/libs/site/packages/recipes && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/recipes/MergeProject.py
+	cd dist/blenderbim/libs/site/packages/recipes && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/recipes/OffsetObjectPlacements.py
+	cd dist/blenderbim/libs/site/packages/recipes && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/recipes/OffsetStoreyElevations.py
+	cd dist/blenderbim/libs/site/packages/recipes && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/recipes/RecycleNonRootedElements.py
+	cd dist/blenderbim/libs/site/packages/recipes && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/recipes/RemoveSiteRepresentation.py
+	cd dist/blenderbim/libs/site/packages/recipes && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/recipes/ResetAbsoluteCoordinates.py
+	cd dist/blenderbim/libs/site/packages/recipes && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/recipes/ResetSpatialElementLocations.py
+	cd dist/blenderbim/libs/site/packages/recipes && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/recipes/SetRefElevation.py
+	cd dist/blenderbim/libs/site/packages/recipes && wget https://raw.githubusercontent.com/IfcOpenShell/IfcOpenShell/v0.6.0/src/ifcpatch/recipes/SplitByBuildingStorey.py
 
 	cd dist/blenderbim && sed -i "s/999999/$(VERSION)/" __init__.py
 	cd dist && zip -r blender28-bim-$(VERSION)-$(PLATFORM).zip ./*

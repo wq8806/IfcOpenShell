@@ -1139,6 +1139,76 @@ bool IfcGeom::Kernel::convert_wire_to_face(const TopoDS_Wire& w, TopoDS_Face& fa
 	return true;
 }
 
+bool IfcGeom::Kernel::convert_wire_to_faces(const TopoDS_Wire& w, TopoDS_Compound& faces) {
+	bool is_2d = true;
+	TopExp_Explorer exp(w, TopAbs_EDGE);
+	for (; exp.More(); exp.Next()) {
+		double a, b;
+		Handle(Geom_Curve) crv = BRep_Tool::Curve(TopoDS::Edge(exp.Current()), a, b);
+		if (crv->DynamicType() != STANDARD_TYPE(Geom_Line)) {
+			is_2d = false;
+			break;
+		}
+		Handle(Geom_Line) line = Handle(Geom_Line)::DownCast(crv);
+		if (line->Lin().Direction().Z() > ALMOST_ZERO) {
+			is_2d = false;
+			break;
+		}
+	}
+
+	TopTools_ListOfShape results;
+	if (wire_intersections(w, results)) {
+		Logger::Warning("Self-intersections with " + boost::lexical_cast<std::string>(results.Extent()) + " cycles detected");
+	} else {
+		results.Clear();
+		results.Append(w);
+	}
+
+	TopoDS_Compound C;
+	BRep_Builder B;
+	B.MakeCompound(faces);
+
+	std::list<std::pair<double, TopoDS_Face>> face_list;
+	double max_area = 0.;
+
+	TopTools_ListIteratorOfListOfShape it(results);
+	for (; it.More(); it.Next()) {
+		const TopoDS_Wire& wire = TopoDS::Wire(it.Value());
+		if (!is_2d) {
+			// For 2d wires (e.g. profiles) a higher tolerance for plane fitting is never required.
+			ShapeFix_ShapeTolerance FTol;
+			FTol.SetTolerance(wire, getValue(GV_PRECISION), TopAbs_WIRE);
+		}
+
+		BRepBuilderAPI_MakeFace mf(wire, false);
+		BRepBuilderAPI_FaceError er = mf.Error();
+
+		if (er != BRepBuilderAPI_FaceDone) {
+			Logger::Error("Failed to create face.");
+			continue;
+		}
+
+		TopoDS_Face face = mf.Face();
+		const double m = face_area(face);
+
+		face_list.push_back({ m, face });
+		if (m > max_area) {
+			max_area = m;
+		}
+	}
+
+	for (auto& p : face_list) {
+		if (p.first >= max_area / 10.) {
+			B.Add(faces, p.second);
+		} else {
+			Logger::Warning("Ignoring self-intersection loop with area " + boost::lexical_cast<std::string>(p.first));
+		}
+	}
+
+	return true;
+}
+
+
 void IfcGeom::Kernel::assert_closed_wire(TopoDS_Wire& wire) {
 	if (wire.Closed() == 0) {
 		TopoDS_Vertex v0, v1;
@@ -1770,7 +1840,7 @@ IfcGeom::BRepElement<P, PP>* IfcGeom::Kernel::create_brep_for_representation_and
 	} else {
 		bool some_items_without_style = false;
 		for (IfcGeom::IfcRepresentationShapeItems::iterator it = shapes.begin(); it != shapes.end(); ++it) {
-			if (!it->hasStyle()) {
+			if (!it->hasStyle() && count(it->Shape(), TopAbs_FACE)) {
 				some_items_without_style = true;
 				break;
 			}
@@ -1782,6 +1852,18 @@ IfcGeom::BRepElement<P, PP>* IfcGeom::Kernel::create_brep_for_representation_and
 
 	if (material_style_applied) {
 		representation_id_builder << "-material-" << single_material->data().id();
+	}
+
+	if (settings.force_space_transparency() >= 0. && product->declaration().is("IfcSpace")) {
+		for (auto& s : shapes) {
+			if (s.hasStyle()) {
+				for (auto& p : style_cache) {
+					if (&p.second == &s.Style()) {
+						p.second.Transparency() = settings.force_space_transparency();
+					}
+				}
+			}
+		}
 	}
 
 	int parent_id = -1;
@@ -2642,7 +2724,7 @@ bool IfcGeom::Kernel::fold_layers(const IfcSchema::IfcWall* wall, const IfcRepre
 		
 		double layer_offset = 0;
 
-		const double total_thickness = std::accumulate(thicknesses.begin(), thicknesses.end(), 0);
+		const double total_thickness = std::accumulate(thicknesses.begin(), thicknesses.end(), 0.);
 		
 		std::vector<double>::const_iterator thickness = thicknesses.begin();
 		result_t::iterator result_vector = result.begin() + 1;
@@ -2779,6 +2861,13 @@ bool IfcGeom::Kernel::fold_layers(const IfcSchema::IfcWall* wall, const IfcRepre
 
 namespace {
 
+	void subshapes(const TopoDS_Shape& in, std::list<TopoDS_Shape>& out) {
+		TopoDS_Iterator sit(in);
+		for (; sit.More(); sit.Next()) {
+			out.push_back(sit.Value());
+		}
+	}
+
 #if OCC_VERSION_HEX >= 0x70200
 	bool split(IfcGeom::Kernel&, const TopoDS_Shape& input, const TopTools_ListOfShape& operands, double eps, std::vector<TopoDS_Shape>& slices) {
 		if (operands.Extent() < 2) {
@@ -2810,18 +2899,19 @@ namespace {
 				}
 			}
 
-			// Count subshapes
-			size_t n = 0;
-			TopoDS_Iterator sit(split.Shape());
-			for (; sit.More(); sit.Next()) {
-				++n;
+			auto result_shape = split.Shape();
+			std::list<TopoDS_Shape> subs;
+			subshapes(result_shape, subs);
+			if (subs.size() == 1 && operands.Size() - 2 > subs.size() && (subs.front().ShapeType() == TopAbs_COMPSOLID || subs.front().ShapeType() == TopAbs_COMPOUND)) {
+				auto s = subs.front();
+				subs.clear();
+				subshapes(s, subs);
 			}
 
 			// Initialize storage
-			slices.resize(n);
+			slices.resize(subs.size());
 
-			sit.Initialize(split.Shape());
-			for (; sit.More(); sit.Next()) {
+			for (auto& s : subs) {
 
 				// Iterate over the faces of solid to find correspondence to original
 				// splitting surfaces. For the outmost slices, there will be a single
@@ -2830,7 +2920,7 @@ namespace {
 				// slices, two surface indices should be find that should be next to
 				// each other in the array of input surfaces.
 
-				TopExp_Explorer exp(sit.Value(), TopAbs_FACE);
+				TopExp_Explorer exp(s, TopAbs_FACE);
 				int min = std::numeric_limits<int>::max();
 				int max = std::numeric_limits<int>::min();
 				for (; exp.More(); exp.Next()) {
@@ -2858,7 +2948,7 @@ namespace {
 
 				if (idx < (int) slices.size()) {
 					if (slices[idx].IsNull()) {
-						slices[idx] = sit.Value();
+						slices[idx] = s;
 						continue;
 					}
 				}

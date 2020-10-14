@@ -1,23 +1,24 @@
 from behave import step
-from utils import IfcFile, assert_attribute
+from utils import IfcFile, assert_attribute, assert_type
 
 @step('The element {guid} is an {ifc_class} only')
 def step_impl(context, guid, ifc_class):
     element = IfcFile.by_guid(guid)
-    assert element.is_a() == ifc_class, 'The element {} is an {} instead of {}.'.format(element, element.is_a(), ifc_class)
+    assert_type(element, ifc_class, is_exact=True)
 
 
 @step('The element {guid} is an {ifc_class}')
 def step_impl(context, guid, ifc_class):
     element = IfcFile.by_guid(guid)
-    assert element.is_a(ifc_class), 'The element {} is an {} instead of {}.'.format(element, element.is_a(), ifc_class)
+    assert_type(element, ifc_class)
 
 
 @step('The element {guid} is further defined as a {predefined_type}')
 def step_impl(context, guid, predefined_type):
     element = IfcFile.by_guid(guid)
-    if (hasattr(element, 'PredefinedType') and element.PredefinedType == 'USERDEFINED') \
-            or hasattr(element,'ObjectType'):
+    if hasattr(element, 'PredefinedType') \
+            and element.PredefinedType == 'USERDEFINED' \
+            and hasattr(element,'ObjectType'):
         assert_attribute(element, 'ObjectType', predefined_type)
     elif hasattr(element, 'PredefinedType'):
         assert_attribute(element, 'PredefinedType', predefined_type)
