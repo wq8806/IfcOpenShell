@@ -57,6 +57,9 @@
  //add my own header
 #include "../ifcparse/IfcFile.h";
 //新版已经内部根据文件schema选择相应的Ifc版本 const std::string& schema_name = (*ifc_file).schema()->name();
+/*
+#define #if 编译预处理宏，是在编译器在编译代码时进行的，而ifc文件schema是程序运行阶段识别的，方法内无法根据运行结果，选择加载IfcSchema宏定义
+*/
 //#ifdef USE_IFC4
 //#include "../ifcparse/Ifc4.h"
 //#define IfcSchema Ifc4
@@ -954,7 +957,6 @@ int main(int argc, char** argv) {
 					" objects)                                ");
 
 				serializer->finalize();
-				//delete serializer;
 				serializer.reset();
 				// Renaming might fail (e.g. maybe the existing file was open in a viewer application)
 				// Do not remove the temp file as user can salvage the conversion result from it.
@@ -1008,9 +1010,6 @@ int main(int argc, char** argv) {
 
 				write_log(!quiet);
 
-				//bool successful = true;
-				//delete serializer;
-				//return successful ? EXIT_SUCCESS : EXIT_FAILURE;
 			}
 
 			//放置于转换文件前，会使得转换include.traverse = true;
@@ -1379,6 +1378,7 @@ void updateXml(std::string xmlPath, ptree &node) {
 	boost::property_tree::write_xml(xmlPath, node, std::locale(), settings);
 }
 
+//IfcGeomIteratorImplementation.h 中包含compute_bounds的方法
 std::map<std::string, std::string> getBounding(std::string &element_guid, const std::string &output_extension, SerializerSettings &settings, IfcParse::IfcFile &ifc_file, int num_threads) {
 	std::map<std::string, std::string> ifcelement_bounds;
 	ifcelement_bounds.insert(std::pair<std::string, std::string>("minXYZ", "0.0 0.0 0.0"));
