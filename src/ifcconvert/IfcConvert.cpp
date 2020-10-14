@@ -56,13 +56,14 @@
 
  //add my own header
 #include "../ifcparse/IfcFile.h";
-#ifdef USE_IFC4
-#include "../ifcparse/Ifc4.h"
-#define IfcSchema Ifc4
-#else
-#include "../ifcparse/Ifc2x3.h"
-#define IfcSchema Ifc2x3
-#endif
+//新版已经内部根据文件schema选择相应的Ifc版本 const std::string& schema_name = (*ifc_file).schema()->name();
+//#ifdef USE_IFC4
+//#include "../ifcparse/Ifc4.h"
+//#define IfcSchema Ifc4
+//#else
+//#include "../ifcparse/Ifc2x3.h"
+//#define IfcSchema Ifc2x3
+//#endif
 
 #include <boost/property_tree/ptree.hpp>//ptree
 using boost::property_tree::ptree;
@@ -766,9 +767,9 @@ int main(int argc, char** argv) {
 		std::map<std::string, int> ifcType_number;    //记录ifctype转换成功、失败的数量
 		std::vector<std::string> glb_names;
 		//IfcParse::IfcFile file = *ifc_file;
-		IfcSchema::IfcProduct::list::ptr elements = (*ifc_file).instances_by_type<IfcSchema::IfcProduct>();
-		//IfcProduct::list::ptr elements = ifc_file.entitiesByType<IfcProduct>();
-		//IfcBuildingElement::list::ptr elements = ifc_file.entitiesByType<IfcBuildingElement>();
+		//取消预编译中加载对应版本的 schema
+		//IfcSchema::IfcProduct::list::ptr elements = (*ifc_file).instances_by_type<IfcSchema::IfcProduct>();
+		IfcEntityList::ptr elements = (*ifc_file).instances_by_type("IfcProduct");
 
 		cout_ << "Found " << elements->size() << " elements in " << argv[1] << ":" << std::endl;
 
@@ -781,14 +782,14 @@ int main(int argc, char** argv) {
 		//}
 
 		int i = 0;
-		for (IfcSchema::IfcProduct::list::it it = elements->begin(); it != elements->end(); ++it) {
-			const IfcSchema::IfcProduct* element = *it;
+		for (IfcEntityList::it it = elements->begin(); it != elements->end(); ++it) {  //可以使用auto
+			const IfcUtil::IfcBaseClass* element = *it;
 			//std::string element_IfcType = IfcSchema::Type::ToString(element->entity->type()); //旧版ifctype
 			std::string element_IfcType = element->data().type()->name();  //ifctype
 			//std::cout << element->entity->getArgument(0)->toString() << std::endl;       //旧版'guid'
-			std::string element_tem_guid = element->GlobalId();    //guid
-			//std::string element_guid = element_tem_guid.substr(1, element_tem_guid.size() - 2);   //旧版需要去掉""
-			std::string element_guid = element_tem_guid;
+			//std::string element_tem_guid = element->GlobalId();    //guid
+			std::string element_tem_guid = element->data().getArgument(0)->toString(); //'guid'
+			std::string element_guid = element_tem_guid.substr(1, element_tem_guid.size() - 2);   //需要去掉""
 			//output_temp_filename = output_filename + IfcUtil::path::from_utf8(element_guid + TEMP_FILE_EXTENSION);     //输出guid命名
 			output_temp_filename = output_filename + IfcUtil::path::from_utf8(element_guid + "--" + element_IfcType +"--" + std::to_string(i) + TEMP_FILE_EXTENSION);    //输出guid--ifcType--i命名
 			
