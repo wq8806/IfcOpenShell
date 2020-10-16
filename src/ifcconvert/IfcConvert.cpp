@@ -762,7 +762,7 @@ int main(int argc, char** argv) {
 		time(&start);
 
 		//if (num_threads <= 0) {   默认使用硬件最大线程数
-		num_threads = std::thread::hardware_concurrency();
+		num_threads = 1;// std::thread::hardware_concurrency();
 		Logger::Status("Using " + std::to_string(num_threads) + " threads");
 		//}
 
