@@ -47,7 +47,7 @@ if (${HAS_MAX})
 OPTION(BUILD_IFCMAX "Build IfcMax, a 3ds Max plug-in, Windows-only." ON)
 endif()
 if (${BUILD_CONVERT})
-OPTION(GLTF_SUPPORT "Build IfcConvert with glTF support (requires json.hpp)." OFF)
+OPTION(GLTF_SUPPORT "Build IfcConvert with glTF support (requires json.hpp)." ON)
 endif()
 
 # TODO QtViewer is deprecated ATM as it uses the 0.4 API
