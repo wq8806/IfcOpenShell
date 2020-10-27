@@ -766,6 +766,8 @@ int main(int argc, char** argv) {
 		Logger::Status("Using " + std::to_string(num_threads) + " threads");
 		//}
 
+		int position = 0;
+		Logger::Status("position:" + std::to_string(position));
 		int i = 0;
 		for (IfcEntityList::it it = elements->begin(); it != elements->end(); ++it) {  //可以使用auto
 			const IfcUtil::IfcBaseClass* element = *it;
@@ -876,14 +878,10 @@ int main(int argc, char** argv) {
 
 				int old_progress = -1;
 
-				Logger::Status("Creating geometry..." + element_guid);
+				//Logger::Status("Creating geometry..." + element_guid);
 
 				size_t num_created = 0;
 
-				/*std::vector<real_t> xCoords;
-				std::vector<real_t> yCoords;
-				std::vector<real_t> zCoords;*/
-				
 				do {
 					IfcGeom::Element<real_t> *geom_object = context_iterator.get();
 
@@ -895,25 +893,17 @@ int main(int argc, char** argv) {
 					{
 						serializer->write(static_cast<const IfcGeom::BRepElement<real_t>*>(geom_object));
 					}
-					/*const IfcGeom::TriangulationElement<real_t>* o = static_cast<const IfcGeom::TriangulationElement<real_t>*>(geom_object);
-					const IfcGeom::Representation::Triangulation<real_t>& mesh = o->geometry();
-
-					for (std::vector<real_t>::const_iterator it = mesh.verts().begin(); it != mesh.verts().end(); ) {
-					xCoords.push_back(*(it++));
-					yCoords.push_back(*(it++));
-					zCoords.push_back(*(it++));
-					}*/
 
 					if (!no_progress) {
 						const int progress = context_iterator.progress() / 2;
-						if (old_progress != progress) Logger::ProgressBar(progress);
+						//if (old_progress != progress) Logger::ProgressBar(progress);
 						old_progress = progress;
 					}
 				} while (++num_created, context_iterator.next());
 
-				const std::string task = ((num_threads == 1) ? "creating" : "writing");
+				/*const std::string task = ((num_threads == 1) ? "creating" : "writing");
 				Logger::Status("\rDone " + task + " geometry (" + boost::lexical_cast<std::string>(num_created) +
-					" objects)                                ");
+					" objects)                                ");*/
 
 				serializer->finalize();
 				serializer.reset();
@@ -969,6 +959,8 @@ int main(int argc, char** argv) {
 			}
 
 			i++;
+			position = floor(( double(i) / elements->size()) * 100 );
+			Logger::Status("position:" + std::to_string(position));
 		}
 
 		time(&end);
