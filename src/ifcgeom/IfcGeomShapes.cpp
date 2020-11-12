@@ -112,6 +112,10 @@
 #include <Geom_ToroidalSurface.hxx>
 #endif
 
+#ifndef uint
+#define uint unsigned int
+#endif
+
 #define Kernel MAKE_TYPE_NAME(Kernel)
 
 // uncomment if you'd like negative or close to zero extrusion depths to succeed

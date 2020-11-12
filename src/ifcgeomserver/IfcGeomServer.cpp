@@ -55,6 +55,10 @@
 
 #include <memory>
 
+#ifndef uint
+#define uint unsigned int
+#endif
+
 template <typename T>
 union data_field {
     char buffer[sizeof(T)];
