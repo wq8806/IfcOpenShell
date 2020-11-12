@@ -1577,7 +1577,7 @@ std::map<std::string, ptree*> findObjectPlacement(ptree & node) {
 }
 
 bool createTxtFile(const std::string &filename, const std::string &content) {
-	ofstream location_out;
+	std::ofstream location_out;
 	/*string ss;
 	ss = “(1, 2)”;*/
 	location_out.open(filename, std::ios::out | std::ios::trunc);  //以写入和在文件末尾添加的方式打开.txt文件，没有的话就创建该文件。 ios::app 文件末尾追加  ios::trunc 清空原有内容
