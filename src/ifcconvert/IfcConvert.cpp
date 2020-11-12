@@ -843,10 +843,12 @@ int main(int argc, char** argv) {
 		time(&start);
 
 		//if (num_threads <= 0) {   默认使用硬件最大线程数
-			num_threads = std::thread::hardware_concurrency();
+		num_threads = std::thread::hardware_concurrency();
 			Logger::Status("Using " + std::to_string(num_threads) + " threads");
 		//}
 
+		int position = 0;
+		Logger::Status("position:" + std::to_string(position));
 		int i = 0;
 		for (IfcEntityList::it it = elements->begin(); it != elements->end(); ++it) {  //可以使用auto
 			const IfcUtil::IfcBaseClass* element = *it;
@@ -927,7 +929,7 @@ int main(int argc, char** argv) {
 
 			if (!serializer->ready()) {
 				IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename));
-				write_log(!quiet);
+				//write_log(!quiet);
 				if (ifcType_number.count(element_IfcType + "_fail") > 0) {
 					ifcType_number[element_IfcType + "_fail"]++;
 				}
@@ -945,7 +947,7 @@ int main(int argc, char** argv) {
 				/// and for a case we found no entities that satisfy our filtering criteria.
 				//Logger::Error("No geometrical entities found");
 
-				write_log(!quiet);
+				//write_log(!quiet);
 				if (ifcType_number.count(element_IfcType + "_fail") > 0) {
 					ifcType_number[element_IfcType + "_fail"]++;
 				}
@@ -979,13 +981,10 @@ int main(int argc, char** argv) {
 
 				int old_progress = -1;
 
-				Logger::Status("Creating geometry..." + element_guid);
+				//Logger::Status("Creating geometry..." + element_guid);
 
 				size_t num_created = 0;
 
-				/*std::vector<real_t> xCoords;
-				std::vector<real_t> yCoords;
-				std::vector<real_t> zCoords;*/
 				do {
 					IfcGeom::Element<real_t> *geom_object = context_iterator.get();
 
@@ -997,27 +996,17 @@ int main(int argc, char** argv) {
 					{
 						serializer->write(static_cast<const IfcGeom::BRepElement<real_t>*>(geom_object));
 					}
-					/*const IfcGeom::TriangulationElement<real_t>* o = static_cast<const IfcGeom::TriangulationElement<real_t>*>(geom_object);
-					const IfcGeom::Representation::Triangulation<real_t>& mesh = o->geometry();
-
-					for (std::vector<real_t>::const_iterator it = mesh.verts().begin(); it != mesh.verts().end(); ) {
-					xCoords.push_back(*(it++));
-					yCoords.push_back(*(it++));
-					zCoords.push_back(*(it++));
-					}*/
 
 					if (!no_progress) {
 						const int progress = context_iterator.progress() / 2;
-						if (old_progress != progress) Logger::ProgressBar(progress);
+						//if (old_progress != progress) Logger::ProgressBar(progress);
 						old_progress = progress;
 					}
 				} while (++num_created, context_iterator.next());
 
-				/*Logger::Status("\rDone creating geometry (" + boost::lexical_cast<std::string>(num_created) +
-					" objects)                                " + element_guid );*/
-				const std::string task = ((num_threads == 1) ? "creating" : "writing");
+				/*const std::string task = ((num_threads == 1) ? "creating" : "writing");
 				Logger::Status("\rDone " + task + " geometry (" + boost::lexical_cast<std::string>(num_created) +
-					" objects)                                ");
+					" objects)                                ");*/
 
 				serializer->finalize();
 				serializer.reset();
@@ -1071,7 +1060,7 @@ int main(int argc, char** argv) {
 				}
 				include_filter.values.clear();
 
-				write_log(!quiet);
+				//write_log(!quiet);
 
 			}
 
@@ -1084,6 +1073,8 @@ int main(int argc, char** argv) {
 			}
 
 			i++;
+			position = floor((double(i) / elements->size()) * 100);
+			Logger::Status("position:" + std::to_string(position));
 		}
 
 		time(&end);
