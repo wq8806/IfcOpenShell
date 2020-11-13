@@ -56,17 +56,6 @@
 
  //add my own header
 #include "../ifcparse/IfcFile.h";
-//新版已经内部根据文件schema选择相应的Ifc版本 const std::string& schema_name = (*ifc_file).schema()->name();
-/*
-#define #if 编译预处理宏，是在编译器在编译代码时进行的，而ifc文件schema是程序运行阶段识别的，方法内无法根据运行结果，选择加载IfcSchema宏定义
-*/
-//#ifdef USE_IFC4
-//#include "../ifcparse/Ifc4.h"
-//#define IfcSchema Ifc4
-//#else
-//#include "../ifcparse/Ifc2x3.h"
-//#define IfcSchema Ifc2x3
-//#endif
 
 #include <boost/property_tree/ptree.hpp>//ptree
 using boost::property_tree::ptree;
@@ -798,9 +787,8 @@ int main(int argc, char** argv) {
 		serializer = boost::make_shared<SvgSerializer>(IfcUtil::path::to_utf8(output_temp_filename), settings);
 	}
 	else if (output_extension.find('.') == std::string::npos) {  //decompose
-		//导出指定guid的元素 用法如 IfcConvert ./input/sample.ifc ./output/test.glb --include+=arg GlobalId 07hc1aZW98debjzrL5HoQY --use-world-coords --use-element-guids
-		settings.set(IfcGeom::IteratorSettings::USE_WORLD_COORDS, true);   //部件化默认使用world_coords,便于转3dTiles
-		settings.set(SerializerSettings::USE_ELEMENT_GUIDS, true);  //转出模型内部以guid命名，例如glb nodes name
+		settings.set(IfcGeom::IteratorSettings::USE_WORLD_COORDS, true);   
+		settings.set(SerializerSettings::USE_ELEMENT_GUIDS, true);
 		if (!init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
 			IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename)); /**< @todo Windows Unicode support */
 			return EXIT_FAILURE;
@@ -808,14 +796,11 @@ int main(int argc, char** argv) {
 		try
 		{
 			XmlSerializer xmlS(ifc_file, IfcUtil::path::to_utf8(output_temp_filename));
-			//xmlS.setFile(&ifc_file); 构造函数中已传入文件
 			Logger::Status("Writing XML output...");
 			xmlS.finalize();
 			Logger::Status("Done! Xml Conversion has completed .");
 
 			IfcUtil::path::rename_file(IfcUtil::path::to_utf8(output_temp_filename), IfcUtil::path::to_utf8(output_filename) + "property.xml");
-
-			//return EXIT_SUCCESS;
 		}
 		catch (const std::exception& error)
 		{
@@ -824,17 +809,13 @@ int main(int argc, char** argv) {
 		used_filters.clear();
 
 		ptree pt;
-		//读取，去掉空格
 		read_xml(IfcUtil::path::to_utf8(output_filename) + "property.xml", pt, boost::property_tree::xml_parser::trim_whitespace, std::locale());
 		ptree &ifcProject = pt.get_child("ifc.decomposition.IfcProject");
-		findObjectPlacement(ifcProject);     //对于具有objectplacement的元素计算minxyz、maxxyz，提取出元素放入hashmap中
+		findObjectPlacement(ifcProject);    
 
 		std::map<std::string, std::string> composite_bounds;
-		std::map<std::string, int> ifcType_number;    //记录ifctype转换成功、失败的数量
+		std::map<std::string, int> ifcType_number;    
 		std::vector<std::string> glb_names;
-		//IfcParse::IfcFile file = *ifc_file;
-		//取消预编译中加载对应版本的 schema
-		//IfcSchema::IfcProduct::list::ptr elements = (*ifc_file).instances_by_type<IfcSchema::IfcProduct>();
 		IfcEntityList::ptr elements = (*ifc_file).instances_by_type("IfcProduct");
 
 		cout_ << "Found " << elements->size() << " elements in " << argv[1] << ":" << std::endl;
@@ -850,12 +831,9 @@ int main(int argc, char** argv) {
 		int position = 0;
 		Logger::Status("position:" + std::to_string(position));
 		int i = 0;
-		for (IfcEntityList::it it = elements->begin(); it != elements->end(); ++it) {  //可以使用auto
+		for (IfcEntityList::it it = elements->begin(); it != elements->end(); ++it) {  
 			const IfcUtil::IfcBaseClass* element = *it;
-			//std::string element_IfcType = IfcSchema::Type::ToString(element->entity->type()); //旧版ifctype
 			std::string element_IfcType = element->data().type()->name();  //ifctype
-			//std::cout << element->entity->getArgument(0)->toString() << std::endl;       //旧版'guid'
-			//std::string element_tem_guid = element->GlobalId();    //guid
 			std::string element_tem_guid = element->data().getArgument(0)->toString(); //'guid'
 			std::string element_guid = element_tem_guid.substr(1, element_tem_guid.size() - 2);   //需要去掉""
 			//output_temp_filename = output_filename + IfcUtil::path::from_utf8(element_guid + TEMP_FILE_EXTENSION);     //输出guid命名
@@ -864,8 +842,7 @@ int main(int argc, char** argv) {
 			include_filter.type = geom_filter::ENTITY_ARG;
 			include_filter.include = true;
 			if (include_traverse_filter.type != geom_filter::UNUSED) {
-				include_filter.traverse = true;                    //遍历 相当于include+  include_traverse_filter   IfcConvert ./inputdata/IfcOpenHouse.ifc ./output/aa/ss.dae --include+=arg GlobalId --use-element-guids
-																   //include_traverse_filter.type = geom_filter::UNUSED;
+				include_filter.traverse = true;                   
 			}
 			else {
 				include_filter.traverse = false;
@@ -875,9 +852,7 @@ int main(int argc, char** argv) {
 			include_filter.values.emplace(element_guid);
 			std::vector<geom_filter> used_filters;
 			if (include_filter.type != geom_filter::UNUSED) { used_filters.push_back(include_filter); }
-			/*if (include_traverse_filter.type != geom_filter::UNUSED) { used_filters.push_back(include_traverse_filter); }
-			if (exclude_filter.type != geom_filter::UNUSED) { used_filters.push_back(exclude_filter); }
-			if (exclude_traverse_filter.type != geom_filter::UNUSED) { used_filters.push_back(exclude_traverse_filter); }*/
+
 
 			std::vector<IfcGeom::filter_t> filter_funcs = setup_filters(used_filters, IfcUtil::path::to_utf8(output_extension));
 			if (filter_funcs.empty()) {
@@ -888,7 +863,6 @@ int main(int argc, char** argv) {
 			if (!layer_filter.values.empty()) { layer_filter.update_description(); Logger::Notice(layer_filter.description); }
 			if (!attribute_filter.attribute_name.empty()) { attribute_filter.update_description(); Logger::Notice(attribute_filter.description); }
 
-			//缺省默认转为dae,指定 --obj时转为obj
 			if (decompose_obj) {
 				const path_t mtl_filename = change_extension(output_temp_filename, MTL);
 				if (!use_world_coords) {
@@ -938,7 +912,6 @@ int main(int argc, char** argv) {
 					ifcType_number.insert(std::pair<std::string, int>(element_IfcType + "_fail", 1));
 				}
 				continue;
-				//return EXIT_FAILURE;
 			}
 		
 			IfcGeom::Iterator<real_t> context_iterator(settings, ifc_file, filter_funcs, num_threads);
@@ -956,15 +929,6 @@ int main(int argc, char** argv) {
 					ifcType_number.insert(std::pair<std::string, int>(element_IfcType + "_fail", 1));
 				}
 
-				//对于包含子元素的节点计算所有子元素AABB，对于存在模型实体的元素计算模型实体AABB
-				/*composite_bounds = getBounding(element_guid, output_extension, settings, ifc_file);
-				if (objectPlacement_node.count(element_guid) > 0) {
-				ptree* objectMap_node = objectPlacement_node[element_guid];
-				(*objectMap_node).put("<xmlattr>.minXYZ", composite_bounds["minXYZ"]);
-				(*objectMap_node).put("<xmlattr>.maxXYZ", composite_bounds["maxXYZ"]);
-				}*/
-				//continue;
-				//return EXIT_FAILURE;
 			}
 			else
 			{
@@ -1004,17 +968,12 @@ int main(int argc, char** argv) {
 					}
 				} while (++num_created, context_iterator.next());
 
-				/*const std::string task = ((num_threads == 1) ? "creating" : "writing");
-				Logger::Status("\rDone " + task + " geometry (" + boost::lexical_cast<std::string>(num_created) +
-					" objects)                                ");*/
-
 				serializer->finalize();
 				serializer.reset();
 				// Renaming might fail (e.g. maybe the existing file was open in a viewer application)
 				// Do not remove the temp file as user can salvage the conversion result from it.
 				size_t a = output_filename.find_last_of('/');
-				//std::cout << output_filename.size() << std::endl;
-				//std::cout << a << std::endl;
+
 				std::string output_filename11 = "";
 				if (decompose_obj) {
 					output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 3)) + "obj";
@@ -1022,18 +981,8 @@ int main(int argc, char** argv) {
 				else
 				{
 					output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 3)) + "glb";
-					//output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 3)) + "dae";
 				}
 				
-				/*测试代码
-				std::string output_filename22 = IfcUtil::path::to_utf8(output_filename.substr(0, a + 1)) + output_filename11;
-				std::string output_filename33 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 4)) + "--" + element_IfcType + ".dae";*/
-
-				//bool successful = rename_file(output_temp_filename, output_filename11);  //guid命名   guid中区分大小写，windows文件不区分大小写，linux区分大小写
-				/*应对guid大小写不同的情况
-				if (file_exists(IfcUtil::path::to_utf8(IfcUtil::path::from_utf8(output_filename11)))) {  //大小写不同的guid文件名特殊处理
-					output_filename11 = IfcUtil::path::to_utf8(output_temp_filename.substr(0, output_temp_filename.size() - 4)) + "--" + std::to_string(i) + ".glb";
-				}*/
 				bool successful = IfcUtil::path::rename_file(IfcUtil::path::to_utf8(output_temp_filename), output_filename11);  //guid--type.dae 命名
 
 				if (!successful) {
@@ -1064,7 +1013,6 @@ int main(int argc, char** argv) {
 
 			}
 
-			//放置于转换文件前，会使得转换include.traverse = true;
 			composite_bounds = getBounding(element_guid, IfcUtil::path::to_utf8(output_extension), settings, *ifc_file,num_threads);
 			if (objectPlacement_node.count(element_guid) > 0) {
 				ptree* objectMap_node = objectPlacement_node[element_guid];
@@ -1107,14 +1055,13 @@ int main(int argc, char** argv) {
 			glb_name_content += *it + ",";
 		}
 		glb_name_content = glb_name_content.substr(0, glb_name_content.size() - 1);
-		//computeIfcProjectBounds(pt);
+
 		std::string ifcSite_minXYZ = ifcProject.get_child("IfcSite.<xmlattr>.minXYZ").get_value<std::string>();
 		std::string ifcSite_maxXYZ = ifcProject.get_child("IfcSite.<xmlattr>.maxXYZ").get_value<std::string>();
-		//composite_bounds = getBounding(ifcSite_guid, output_extension, settings, ifc_file);
+
 		ifcProject.put("<xmlattr>.minXYZ", ifcSite_minXYZ);
 		ifcProject.put("<xmlattr>.maxXYZ", ifcSite_maxXYZ);
-		updateXml(IfcUtil::path::to_utf8(output_filename) + "property.xml", pt);       //更新element的minXYZ、maxXYZ
-		//std::cout << "objectplacement 节点数目：" << objectPlacement_node.size() << std::endl;
+		updateXml(IfcUtil::path::to_utf8(output_filename) + "property.xml", pt);
 		std::string txtFileName = IfcUtil::path::to_utf8(output_filename) + "count.txt";   //记录转换成功、失败的element
 		createTxtFile(txtFileName, ifcType_count);
 
@@ -1463,32 +1410,6 @@ std::map<std::string, std::string> getBounding(std::string &element_guid, const 
 	std::map<std::string, std::string> ifcelement_bounds;
 	ifcelement_bounds.insert(std::pair<std::string, std::string>("minXYZ", "0.0 0.0 0.0"));
 	ifcelement_bounds.insert(std::pair<std::string, std::string>("maxXYZ", "0.0 0.0 0.0"));
-	/*SerializerSettings settings;
-	/// @todo Make APPLY_DEFAULT_MATERIALS configurable? Quickly tested setting this to false and using obj exporter caused the program to crash and burn.
-	settings.set(IfcGeom::IteratorSettings::APPLY_DEFAULT_MATERIALS, true);
-	settings.set(IfcGeom::IteratorSettings::USE_WORLD_COORDS, true);
-	settings.set(IfcGeom::IteratorSettings::WELD_VERTICES, false);
-	settings.set(IfcGeom::IteratorSettings::SEW_SHELLS, false);
-	settings.set(IfcGeom::IteratorSettings::CONVERT_BACK_UNITS, false);
-	#if OCC_VERSION_HEX < 0x60900
-	settings.set(IfcGeom::IteratorSettings::FASTER_BOOLEANS, false);
-	#endif
-	settings.set(IfcGeom::IteratorSettings::DISABLE_OPENING_SUBTRACTIONS, false);
-	settings.set(IfcGeom::IteratorSettings::INCLUDE_CURVES, false);
-	settings.set(IfcGeom::IteratorSettings::EXCLUDE_SOLIDS_AND_SURFACES, true);
-	settings.set(IfcGeom::IteratorSettings::APPLY_LAYERSETS, false);
-	settings.set(IfcGeom::IteratorSettings::NO_NORMALS, false);
-	settings.set(IfcGeom::IteratorSettings::GENERATE_UVS, false);
-	settings.set(IfcGeom::IteratorSettings::SEARCH_FLOOR, false);
-	settings.set(IfcGeom::IteratorSettings::SITE_LOCAL_PLACEMENT, false);
-	settings.set(IfcGeom::IteratorSettings::BUILDING_LOCAL_PLACEMENT, false);
-
-
-	settings.set(SerializerSettings::USE_ELEMENT_NAMES, false);
-	settings.set(SerializerSettings::USE_ELEMENT_GUIDS, true);
-	settings.set(SerializerSettings::USE_MATERIAL_NAMES, false);
-	settings.set(SerializerSettings::USE_ELEMENT_TYPES, false);
-	settings.set(SerializerSettings::USE_ELEMENT_HIERARCHY, false);*/
 
 	inclusion_filter include_filter;
 	inclusion_traverse_filter include_traverse_filter;
@@ -1500,9 +1421,6 @@ std::map<std::string, std::string> getBounding(std::string &element_guid, const 
 	include_filter.values.emplace(element_guid);
 	std::vector<geom_filter> used_filters;
 	if (include_filter.type != geom_filter::UNUSED) { used_filters.push_back(include_filter); }
-	/*if (include_traverse_filter.type != geom_filter::UNUSED) { used_filters.push_back(include_traverse_filter); }
-	if (exclude_filter.type != geom_filter::UNUSED) { used_filters.push_back(exclude_filter); }
-	if (exclude_traverse_filter.type != geom_filter::UNUSED) { used_filters.push_back(exclude_traverse_filter); }*/
 
 	std::vector<IfcGeom::filter_t> filter_funcs = setup_filters(used_filters, output_extension);
 	if (filter_funcs.empty()) {
@@ -1560,15 +1478,8 @@ std::map<std::string, ptree*> findObjectPlacement(ptree & node) {
 	BOOST_FOREACH(ptree::value_type &child, node.get_child("")) {
 		std::string obj_placement = child.second.get<std::string>("<xmlattr>.ObjectPlacement", "default");
 		if (obj_placement.compare("default") != 0) {
-			//cout << "ttttttttttt" << child.first << endl;//节点名
 			std::string ifcelemnt_id = child.second.get<std::string>("<xmlattr>.id");
 			objectPlacement_node.insert(std::pair<std::string, ptree*>(ifcelemnt_id, &(child.second)));
-			/*BOOST_AUTO(childs, child.second.get_child(""));
-			BOOST_AUTO(child1, childs.begin());
-			for (; child1 != childs.end(); ++child1)
-			{
-			findObjectPlacement(*child1);
-			}*/
 			findObjectPlacement(child.second);
 		}
 	}
@@ -1578,15 +1489,11 @@ std::map<std::string, ptree*> findObjectPlacement(ptree & node) {
 
 bool createTxtFile(const std::string &filename, const std::string &content) {
 	std::ofstream location_out;
-	/*string ss;
-	ss = “(1, 2)”;*/
-	location_out.open(filename, std::ios::out | std::ios::trunc);  //以写入和在文件末尾添加的方式打开.txt文件，没有的话就创建该文件。 ios::app 文件末尾追加  ios::trunc 清空原有内容
+	location_out.open(filename, std::ios::out | std::ios::trunc);
 	if (!location_out.is_open())
 		return false;
 
-	//location_out << content << endl;  //endl会写入回车换行到文本中
-	location_out << content ;  //endl会写入回车换行到文本中
-	//location_out << "(" << 5 << ", " << 10 << ") \n";     //将”(5,10) 回车”写入.txt文件中
+	location_out << content ;  
 
 	location_out.close();
 	return true;
