@@ -863,7 +863,7 @@ int main(int argc, char** argv) {
 			if (!layer_filter.values.empty()) { layer_filter.update_description(); Logger::Notice(layer_filter.description); }
 			if (!attribute_filter.attribute_name.empty()) { attribute_filter.update_description(); Logger::Notice(attribute_filter.description); }
 
-			if (decompose_obj) {
+			/*if (decompose_obj) {
 				const path_t mtl_filename = change_extension(output_temp_filename, MTL);
 				if (!use_world_coords) {
 					Logger::Notice("Using world coords when writing WaveFront OBJ files");
@@ -1011,7 +1011,7 @@ int main(int argc, char** argv) {
 
 				//write_log(!quiet);
 
-			}
+			}*/
 
 			composite_bounds = getBounding(element_guid, IfcUtil::path::to_utf8(output_extension), settings, *ifc_file,num_threads);
 			if (objectPlacement_node.count(element_guid) > 0) {
@@ -1044,7 +1044,7 @@ int main(int argc, char** argv) {
 		}
 		Logger::Status(msg.str());
 
-		std::string ifcType_count = "Found " + std::to_string(elements->size() + 1) + " elements in " + IfcUtil::path::to_utf8(argv[1]) + ": \n";
+		/*std::string ifcType_count = "Found " + std::to_string(elements->size() + 1) + " elements in " + IfcUtil::path::to_utf8(argv[1]) + ": \n";
 		ifcType_number.insert(std::pair<std::string, int>("IfcProject_fail", 1));
 		for (auto it = ifcType_number.begin(); it != ifcType_number.end(); ++it) {
 			ifcType_count = ifcType_count + it->first + " => " + std::to_string(it->second) + '\n';
@@ -1054,7 +1054,7 @@ int main(int argc, char** argv) {
 		for (auto it = glb_names.begin(); it != glb_names.end(); it++) {
 			glb_name_content += *it + ",";
 		}
-		glb_name_content = glb_name_content.substr(0, glb_name_content.size() - 1);
+		glb_name_content = glb_name_content.substr(0, glb_name_content.size() - 1);*/
 
 		std::string ifcSite_minXYZ = ifcProject.get_child("IfcSite.<xmlattr>.minXYZ").get_value<std::string>();
 		std::string ifcSite_maxXYZ = ifcProject.get_child("IfcSite.<xmlattr>.maxXYZ").get_value<std::string>();
@@ -1062,11 +1062,11 @@ int main(int argc, char** argv) {
 		ifcProject.put("<xmlattr>.minXYZ", ifcSite_minXYZ);
 		ifcProject.put("<xmlattr>.maxXYZ", ifcSite_maxXYZ);
 		updateXml(IfcUtil::path::to_utf8(output_filename) + "property.xml", pt);
-		std::string txtFileName = IfcUtil::path::to_utf8(output_filename) + "count.txt";   //记录转换成功、失败的element
+		/*std::string txtFileName = IfcUtil::path::to_utf8(output_filename) + "count.txt";   //记录转换成功、失败的element
 		createTxtFile(txtFileName, ifcType_count);
 
 		std::string outputFileNametxt = IfcUtil::path::to_utf8(output_filename) + "name.txt";   //记录转换出的glb文件名
-		createTxtFile(outputFileNametxt, glb_name_content);
+		createTxtFile(outputFileNametxt, glb_name_content);*/
 		bool successful = true;
 		return successful ? EXIT_SUCCESS : EXIT_FAILURE;
 
